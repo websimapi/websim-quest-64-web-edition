@@ -32,6 +32,8 @@ export class Player {
             maxTime: 0,
             onComplete: null
         };
+        
+        this.targetRotation = null;
 
         this.recalcStats();
     }
@@ -245,12 +247,14 @@ export class Player {
         }
 
         if (this.isMoving) {
+            this.targetRotation = null; // User input overrides auto-turn
+
             const moveVec = new THREE.Vector3(inputs.x, 0, -inputs.y).normalize();
             
             // Rotate player to face movement
             const angle = Math.atan2(moveVec.x, moveVec.z);
             const targetQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0), angle);
-            this.mesh.quaternion.slerp(targetQuat, 0.2);
+            this.mesh.quaternion.slerp(targetQuat, 10 * dt);
 
             // Move
             const moveAmount = moveVec.multiplyScalar(this.speed * dt);
@@ -269,6 +273,14 @@ export class Player {
             }
         } else {
              // Idle
+             if (this.targetRotation) {
+                this.mesh.quaternion.slerp(this.targetRotation, 10 * dt);
+                if (this.mesh.quaternion.angleTo(this.targetRotation) < 0.05) {
+                    this.mesh.quaternion.copy(this.targetRotation);
+                    this.targetRotation = null;
+                }
+             }
+
              if(this.model) {
                  this.model.position.y = 0;
                  if (this.leftArm) this.leftArm.rotation.x = THREE.MathUtils.lerp(this.leftArm.rotation.x, 0, 0.1);
@@ -282,6 +294,10 @@ export class Player {
             const groundH = world.getHeight(this.mesh.position.x, this.mesh.position.z);
             this.mesh.position.y = groundH;
         }
+    }
+
+    smoothLookAt(quat) {
+        this.targetRotation = quat;
     }
 
     startCasting(spellConfig, onComplete) {

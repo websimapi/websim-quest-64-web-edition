@@ -96,7 +96,11 @@ export class CombatSystem {
 
         if (this.currentMove >= cost) {
             this.currentMove -= cost;
-            this.player.mesh.lookAt(targetPos.x, playerPos.y, targetPos.z);
+            
+            const dummy = new THREE.Object3D();
+            dummy.position.copy(playerPos);
+            dummy.lookAt(targetPos.x, playerPos.y, targetPos.z);
+            this.player.smoothLookAt(dummy.quaternion);
         }
     }
 
