@@ -96,19 +96,18 @@ export class CombatSystem {
             return;
         }
 
-        const spawnPos = this.player.mesh.position.clone();
-        spawnPos.y += 1.5;
+        const staffState = this.player.getStaffTipWorldState();
         
         let sfx = 'wind';
         if (element === 'fire') sfx = 'fire';
         if (element === 'earth') sfx = 'hit';
         this.audioManager.playSfx(sfx);
 
-        // No lock-on: fires in player's forward direction
+        // Fire from staff tip in staff direction
         const projectile = new SpellProjectile(
             this.scene, 
-            spawnPos, 
-            this.player.mesh.quaternion,
+            staffState.position, 
+            staffState.quaternion,
             spellConfig
         );
         this.projectiles.push(projectile);

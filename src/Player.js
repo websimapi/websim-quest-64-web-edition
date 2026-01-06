@@ -111,7 +111,10 @@ export class Player {
             // Animation for casting (shake)
             const vibration = Math.sin(Date.now() * 0.05) * 0.02;
             this.mesh.position.x += vibration;
-            this.mesh.children[2].rotation.x = 0.5 - (1 - this.castState.timer/this.castState.maxTime);
+            
+            // Animate staff to point forward (from 0.5 to -PI/2)
+            const progress = 1 - (this.castState.timer / this.castState.maxTime);
+            this.mesh.children[2].rotation.x = 0.5 + (-1.57 - 0.5) * progress;
 
             if (this.castState.timer <= 0) {
                 // Complete
@@ -188,6 +191,27 @@ export class Player {
         this.castState.active = false;
         this.castState.onComplete = null;
         this.mesh.children[2].rotation.x = 0.5; // Reset staff
+    }
+
+    getStaffTipWorldState() {
+        const staff = this.mesh.children[2];
+        if (!staff) return { position: this.mesh.position, quaternion: this.mesh.quaternion };
+
+        // Tip of the staff (local Y is length)
+        const tipPos = new THREE.Vector3(0, 0.75, 0).applyMatrix4(staff.matrixWorld);
+        
+        // Handle of the staff for direction calculation
+        const handlePos = new THREE.Vector3(0, -0.75, 0).applyMatrix4(staff.matrixWorld);
+        
+        // Orient a dummy object to look from handle to tip
+        const dummy = new THREE.Object3D();
+        dummy.position.copy(handlePos);
+        dummy.lookAt(tipPos);
+
+        return {
+            position: tipPos,
+            quaternion: dummy.quaternion
+        };
     }
     
     // Legacy method for roaming instant cast (if needed)
