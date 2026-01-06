@@ -5,8 +5,8 @@ export class World {
     constructor(scene) {
         this.scene = scene;
         this.ground = null;
-        this.size = 200;
-        this.segments = 64;
+        this.size = 600;
+        this.segments = 128;
         this.enemies = [];
     }
 
@@ -29,8 +29,8 @@ export class World {
             const x = posAttribute.getX(i);
             const y = posAttribute.getY(i);
             
-            // Perlin-ish noise (simple sine sum)
-            const z = Math.sin(x * 0.1) * 2 + Math.cos(y * 0.1) * 2 + Math.sin(x * 0.3 + y * 0.3) * 1;
+            // Perlin-ish noise (simple sine sum) - Expanded for larger world
+            const z = Math.sin(x * 0.04) * 6 + Math.cos(y * 0.03) * 5 + Math.sin(x * 0.1 + y * 0.1) * 2;
             
             // Update Z (which is Y in world space after rotation)
             posAttribute.setZ(i, z);
@@ -73,12 +73,15 @@ export class World {
         const trunkGeo = new THREE.CylinderGeometry(0.3, 0.3, 1, 4);
         const trunkMat = new THREE.MeshStandardMaterial({ color: 0x5d4037 });
 
-        for(let i=0; i<40; i++) {
-            const x = (Math.random() - 0.5) * 150;
-            const z = (Math.random() - 0.5) * 150;
-            if(Math.sqrt(x*x + z*z) < 15) continue; // Clear start area
+        // More trees for larger world
+        for(let i=0; i<150; i++) {
+            const x = (Math.random() - 0.5) * this.size;
+            const z = (Math.random() - 0.5) * this.size;
+            if(Math.sqrt(x*x + z*z) < 25) continue; // Clear start area
 
             const y = this.getHeight(x, z);
+            if (y < -2) continue; // Don't put trees in deep pits
+
             const tree = new THREE.Group();
             const trunk = new THREE.Mesh(trunkGeo, trunkMat);
             trunk.position.y = 0.5;
@@ -97,20 +100,31 @@ export class World {
 
     generateEnemies() {
         const loader = new THREE.TextureLoader();
+        // Only goblins get the texture for now, others use colors
         loader.load('enemy_texture.png', (tex) => {
             tex.magFilter = THREE.NearestFilter;
-            this.enemies.forEach(e => e.setTexture(tex));
+            this.enemies.forEach(e => {
+                if (e.type === 'GOBLIN') e.setTexture(tex);
+            });
         });
 
-        for(let i=0; i<10; i++) {
+        const count = 60;
+        for(let i=0; i<count; i++) {
             const angle = Math.random() * Math.PI * 2;
-            const dist = 20 + Math.random() * 60;
+            // Distribute across the larger world (avoiding spawn area < 30)
+            const dist = 30 + Math.random() * 250; 
             const x = Math.cos(angle) * dist;
             const z = Math.sin(angle) * dist;
             
-            const enemy = new Enemy(this.scene, x, z);
+            let type = 'GOBLIN';
+            if (dist > 80 && Math.random() > 0.6) type = 'SLIME';
+            if (dist > 140 && Math.random() > 0.6) type = 'WOLF';
+            if (dist > 180 && Math.random() > 0.5) type = 'GOLEM';
+            if (dist > 220 && Math.random() > 0.5) type = 'SPIRIT';
+
+            const enemy = new Enemy(this.scene, x, z, type);
             // Height adjust
-            enemy.mesh.position.y = this.getHeight(x, z) + 0.7;
+            enemy.mesh.position.y = this.getHeight(x, z) + enemy.yOffset;
             this.enemies.push(enemy);
         }
     }
@@ -130,6 +144,6 @@ export class World {
         // Plane x -> World x, Plane y -> World -z
         const px = x;
         const py = -z;
-        return Math.sin(px * 0.1) * 2 + Math.cos(py * 0.1) * 2 + Math.sin(px * 0.3 + py * 0.3) * 1;
+        return Math.sin(px * 0.04) * 6 + Math.cos(py * 0.03) * 5 + Math.sin(px * 0.1 + py * 0.1) * 2;
     }
 }
