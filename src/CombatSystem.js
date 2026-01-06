@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { SpellProjectile, SPELLS } from './Spells.js';
+import * as THREE from 'three';
+import { SpellProjectile, getSpellConfig } from './Spells.js';
 
 export class CombatSystem {
     constructor(scene, player, audioManager) {
@@ -14,6 +15,7 @@ export class CombatSystem {
         
         this.activeEnemies = [];
         this.projectiles = [];
+        this.world = null; // Store reference
 
         // Turn System
         this.turn = 'PLAYER'; // 'PLAYER' | 'ENEMY'
@@ -25,6 +27,7 @@ export class CombatSystem {
 
     initBattle(centerPos, primaryEnemy, allEnemies, world) {
         this.active = true;
+        this.world = world;
         this.center.copy(centerPos);
         
         // Find all enemies in radius + the primary one
@@ -50,15 +53,9 @@ export class CombatSystem {
         
         for (let i = 0; i < posAttribute.count; i++) {
             vertex.fromBufferAttribute(posAttribute, i);
-            
-            // Calculate world position for this vertex
             const wx = centerPos.x + vertex.x;
             const wz = centerPos.z + vertex.z;
-            
-            // Get height at this position
             const h = world.getHeight(wx, wz);
-            
-            // Set vertex to absolute world position
             posAttribute.setXYZ(i, wx, h + 0.5, wz);
         }
         
@@ -66,7 +63,6 @@ export class CombatSystem {
 
         const material = new THREE.MeshBasicMaterial({ color: 0xffaa00, transparent: true, opacity: 0.6 });
         this.boundaryMesh = new THREE.Mesh(geometry, material);
-        // Mesh stays at 0,0,0 because vertices are in world space
         this.scene.add(this.boundaryMesh);
 
         this.startPlayerTurn();
@@ -116,8 +112,9 @@ export class CombatSystem {
         if (this.turn !== 'PLAYER') return;
         
         const level = this.player.spirits[element];
-        const spellIndex = level >= 5 ? 1 : 0;
-        const spellConfig = SPELLS[element][spellIndex];
+        
+        // Get dynamic spell config
+        const spellConfig = getSpellConfig(element, level, this.player.stats.hp, this.player.stats.maxHp);
         
         if (this.player.stats.mp < spellConfig.cost) return;
 
@@ -132,10 +129,38 @@ export class CombatSystem {
     executeSpell(element, spellConfig) {
         this.player.stats.mp -= spellConfig.cost;
 
+        // Visual Effects for Heal
         if (spellConfig.type === 'heal') {
             this.player.stats.hp = Math.min(this.player.stats.maxHp, this.player.stats.hp + spellConfig.power);
             this.audioManager.playSfx('cast');
-            // Self-buffs also end turn
+            
+            // Add visual healing column
+            const healGeo = new THREE.CylinderGeometry(1, 1, 4, 8, 1, true);
+            const healMat = new THREE.MeshBasicMaterial({ 
+                color: spellConfig.color, 
+                transparent: true, 
+                opacity: 0.5, 
+                side: THREE.DoubleSide 
+            });
+            const healMesh = new THREE.Mesh(healGeo, healMat);
+            healMesh.position.copy(this.player.mesh.position);
+            healMesh.position.y += 2;
+            this.scene.add(healMesh);
+            
+            // Animate out
+            let scale = 1;
+            const anim = setInterval(() => {
+                scale += 0.1;
+                healMesh.scale.set(scale, 1, scale);
+                healMesh.material.opacity -= 0.05;
+                if(healMesh.material.opacity <= 0) {
+                    clearInterval(anim);
+                    this.scene.remove(healMesh);
+                    healMesh.geometry.dispose();
+                    healMesh.material.dispose();
+                }
+            }, 50);
+            
             return;
         }
 
@@ -143,15 +168,39 @@ export class CombatSystem {
         
         let sfx = 'wind';
         if (element === 'fire') sfx = 'fire';
-        if (element === 'earth') sfx = 'hit';
+        if (element === 'earth') sfx = 'hit'; // Thud
         this.audioManager.playSfx(sfx);
 
-        // Fire from staff tip in staff direction
+        // Auto-target logic for pillars/homing
+        let target = null;
+        if (this.activeEnemies.length > 0) {
+            // Find closest enemy in front of player
+            const forward = new THREE.Vector3(0,0,-1).applyQuaternion(this.player.mesh.quaternion);
+            let bestDot = 0.5; // 45 degree cone roughly
+            
+            for(let e of this.activeEnemies) {
+                if(e.hp <= 0) continue;
+                const dirToEnemy = new THREE.Vector3().subVectors(e.mesh.position, this.player.mesh.position).normalize();
+                const dot = forward.dot(dirToEnemy);
+                if(dot > bestDot) {
+                    bestDot = dot;
+                    target = e;
+                }
+            }
+            // Fallback: closest
+            if(!target && this.activeEnemies.length > 0) {
+                 target = this.activeEnemies[0];
+            }
+        }
+
+        // Fire Spell
         const projectile = new SpellProjectile(
             this.scene, 
             staffState.position, 
-            staffState.quaternion,
-            spellConfig
+            staffState.quaternion, // Direction from player
+            spellConfig,
+            this.world,
+            target
         );
         this.projectiles.push(projectile);
     }
@@ -170,10 +219,9 @@ export class CombatSystem {
             // Check Move Stamina
             if (this.currentMove > 0 && (inputs.x !== 0 || inputs.y !== 0)) {
                 canMove = true;
-                this.currentMove -= dt * this.player.speed; // Deplete based on speed/time
+                this.currentMove -= dt * this.player.speed; 
                 if (this.currentMove < 0) this.currentMove = 0;
             } else if (this.currentMove <= 0) {
-                // Stamina depleted
                 canMove = false;
             }
         } else if (this.turn === 'ENEMY') {
@@ -181,7 +229,6 @@ export class CombatSystem {
             const enemy = this.activeEnemies[this.enemyTurnIndex];
             
             if (!enemy || !enemy.mesh || enemy.hp <= 0) {
-                // Invalid or dead, next
                 this.enemyTurnIndex++;
                 this.prepareNextEnemy();
             } else {
@@ -193,10 +240,8 @@ export class CombatSystem {
             }
         }
 
-        // Update Player
         this.player.update(dt, inputs, world, this.center, this.radius, canMove);
         
-        // Check Escape
         const dist = this.player.mesh.position.distanceTo(this.center);
         if (dist > this.radius) {
             return 'ESCAPE';
@@ -210,11 +255,17 @@ export class CombatSystem {
             if (result.result === 'HIT') {
                 this.audioManager.playSfx('hit');
                 result.target.takeDamage(result.damage);
-                // Don't return VICTORY here, let next loop catch it so we process things orderly
-                
                 p.dispose();
                 this.projectiles.splice(i, 1);
-            } else if (result.result === 'TIMEOUT') {
+            } 
+            else if (result.result === 'HIT_AOE') {
+                this.audioManager.playSfx('hit');
+                result.targets.forEach(t => t.takeDamage(result.damage));
+                // Do NOT dispose immediately if we want lingering effects, but for now we do
+                // Actually ground targets might linger visually in update() until life runs out
+                // But damage triggers once.
+            }
+            else if (result.result === 'TIMEOUT') {
                 p.dispose();
                 this.projectiles.splice(i, 1);
             }
