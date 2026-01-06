@@ -207,7 +207,7 @@ export class Game {
             }
 
         } else if (this.gameState === 'BATTLE') {
-            const battleResult = this.combatSystem.update(dt, this.inputs);
+            const battleResult = this.combatSystem.update(dt, this.inputs, this.world);
             if (battleResult === 'VICTORY') {
                 this.handleVictory();
                 this.endBattle();
@@ -224,7 +224,7 @@ export class Game {
     startBattle(enemy) {
         this.gameState = 'BATTLE';
         this.showMessage("BATTLE START!");
-        this.combatSystem.initBattle(this.player.mesh.position, enemy, this.world.enemies);
+        this.combatSystem.initBattle(this.player.mesh.position, enemy, this.world.enemies, this.world);
     }
 
     endBattle() {

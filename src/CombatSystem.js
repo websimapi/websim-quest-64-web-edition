@@ -23,7 +23,7 @@ export class CombatSystem {
         this.turnTimer = 0;
     }
 
-    initBattle(centerPos, primaryEnemy, allEnemies) {
+    initBattle(centerPos, primaryEnemy, allEnemies, world) {
         this.active = true;
         this.center.copy(centerPos);
         
@@ -40,13 +40,33 @@ export class CombatSystem {
             e.resetBattleState();
         });
 
-        // Create Boundary Ring
-        const geometry = new THREE.TorusGeometry(this.radius, 0.2, 8, 32);
+        // Create Boundary Ring conforming to terrain
+        const geometry = new THREE.TorusGeometry(this.radius, 0.2, 8, 64);
+        geometry.rotateX(Math.PI / 2);
+        
+        // Modify vertices to sit on terrain
+        const posAttribute = geometry.attributes.position;
+        const vertex = new THREE.Vector3();
+        
+        for (let i = 0; i < posAttribute.count; i++) {
+            vertex.fromBufferAttribute(posAttribute, i);
+            
+            // Calculate world position for this vertex
+            const wx = centerPos.x + vertex.x;
+            const wz = centerPos.z + vertex.z;
+            
+            // Get height at this position
+            const h = world.getHeight(wx, wz);
+            
+            // Set vertex to absolute world position
+            posAttribute.setXYZ(i, wx, h + 0.5, wz);
+        }
+        
+        geometry.computeVertexNormals();
+
         const material = new THREE.MeshBasicMaterial({ color: 0xffaa00, transparent: true, opacity: 0.6 });
         this.boundaryMesh = new THREE.Mesh(geometry, material);
-        this.boundaryMesh.rotation.x = Math.PI / 2;
-        this.boundaryMesh.position.copy(centerPos);
-        this.boundaryMesh.position.y += 1;
+        // Mesh stays at 0,0,0 because vertices are in world space
         this.scene.add(this.boundaryMesh);
 
         this.startPlayerTurn();
@@ -136,7 +156,7 @@ export class CombatSystem {
         this.projectiles.push(projectile);
     }
 
-    update(dt, inputs) {
+    update(dt, inputs, world) {
         if (!this.active) return 'ESCAPE';
 
         // Check Victory
@@ -174,7 +194,7 @@ export class CombatSystem {
         }
 
         // Update Player
-        this.player.update(dt, inputs, null, this.center, this.radius, canMove);
+        this.player.update(dt, inputs, world, this.center, this.radius, canMove);
         
         // Check Escape
         const dist = this.player.mesh.position.distanceTo(this.center);

@@ -52,7 +52,7 @@ export class SpellProjectile {
 
     update(dt, enemies) {
         this.life -= dt;
-        if (this.life <= 0) return 'TIMEOUT';
+        if (this.life <= 0) return { result: 'TIMEOUT' };
 
         const move = this.velocity.clone().multiplyScalar(dt);
         this.mesh.position.add(move);
