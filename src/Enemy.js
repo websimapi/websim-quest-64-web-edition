@@ -247,7 +247,7 @@ export class Enemy {
                         damage = (this.type === 'WOLF') ? 12 : 8;
                         hit = true;
                         // Bounce player
-                        const bounce = dir.clone().multiplyScalar(1.5);
+                        const bounce = dir.clone().multiplyScalar(3.0);
                         player.mesh.position.add(bounce);
                     }
                 }

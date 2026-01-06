@@ -35,6 +35,7 @@ export class Game {
 
         this.clock = new THREE.Clock();
         this.gameState = 'ROAMING'; // ROAMING, BATTLE, MENU
+        this.messageTimer = null;
     }
 
     async start() {
@@ -212,6 +213,7 @@ export class Game {
                 this.handleVictory();
                 this.endBattle();
             } else if (battleResult === 'ESCAPE') {
+                this.showMessage("ESCAPED!", 2000);
                 this.endBattle();
             }
         }
@@ -223,19 +225,18 @@ export class Game {
 
     startBattle(enemy) {
         this.gameState = 'BATTLE';
-        this.showMessage("BATTLE START!");
+        this.showMessage("BATTLE START!", 2000);
         this.combatSystem.initBattle(this.player.mesh.position, enemy, this.world.enemies, this.world);
     }
 
     endBattle() {
         this.gameState = 'ROAMING';
-        this.showMessage("");
         this.combatSystem.cleanup();
     }
     
     handleVictory() {
         const leveledUp = this.player.gainXp(20);
-        this.showMessage(leveledUp ? "LEVEL UP!" : "VICTORY!");
+        this.showMessage(leveledUp ? "LEVEL UP!" : "VICTORY!", 3000);
         
         if (leveledUp) {
             this.showLevelUpMenu();
@@ -275,10 +276,18 @@ export class Game {
         document.getElementById('lvl-wind').onclick = handler;
     }
 
-    showMessage(msg) {
+    showMessage(msg, duration = 0) {
         const box = document.getElementById('message-box');
         box.style.display = msg ? 'block' : 'none';
         box.textContent = msg;
+        
+        if (this.messageTimer) clearTimeout(this.messageTimer);
+        if (duration > 0) {
+            this.messageTimer = setTimeout(() => {
+                box.style.display = 'none';
+                box.textContent = "";
+            }, duration);
+        }
     }
 
     onResize() {
