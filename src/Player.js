@@ -216,8 +216,15 @@ export class Player {
             // Raise arm:
             if(this.rightArm) {
                 const progress = 1 - (this.castState.timer / this.castState.maxTime);
-                // Rotate arm up (-0.5 is downish, -1.5 is forward/up)
-                this.rightArm.rotation.x = -0.5 + (-1.0) * progress;
+                // Rotate arm forward (+1.5 is forward, -0.5 is default)
+                // Previous -1.5 pointed backwards, +1.5 points forward
+                this.rightArm.rotation.x = -0.5 + (2.0) * progress;
+                
+                // Rotate staff to align with arm (point forward)
+                // Start PI/2 (Perpendicular). End PI (Aligned with Arm Forward).
+                if(this.staffMesh) {
+                    this.staffMesh.rotation.x = (Math.PI / 2) + (Math.PI / 2) * progress;
+                }
             }
 
             if (this.castState.timer <= 0) {
@@ -289,6 +296,7 @@ export class Player {
         this.castState.active = false;
         this.castState.onComplete = null;
         if (this.rightArm) this.rightArm.rotation.x = -0.5;
+        if (this.staffMesh) this.staffMesh.rotation.x = Math.PI / 2;
     }
 
     getStaffTipWorldState() {
