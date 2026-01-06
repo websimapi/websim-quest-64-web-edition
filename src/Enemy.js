@@ -68,6 +68,13 @@ export class Enemy {
         this.mesh.position.copy(this.roamOrigin);
         
         this.scene.add(this.mesh);
+
+        // Hitbox for easier selection
+        const hitGeo = new THREE.CylinderGeometry(1.5, 1.5, 3, 8);
+        const hitMat = new THREE.MeshBasicMaterial({ visible: false, side: THREE.DoubleSide });
+        const hitbox = new THREE.Mesh(hitGeo, hitMat);
+        hitbox.userData = { isHitbox: true };
+        this.mesh.add(hitbox);
         
         // Eye / Direction Indicator
         const eyeColor = type === 'SPIRIT' ? 0xff0000 : 0xffff00;

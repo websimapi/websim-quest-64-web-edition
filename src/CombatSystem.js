@@ -73,14 +73,15 @@ export class CombatSystem {
     }
 
     tryFaceTarget(target) {
-        if (this.turn !== 'PLAYER' || !target.mesh) return;
+        if (this.turn !== 'PLAYER' || !target.mesh) return { success: false, reason: 'Not player turn' };
 
         const playerPos = this.player.mesh.position;
         const targetPos = target.mesh.position;
 
         // Dir to target
-        const dir = new THREE.Vector3().subVectors(targetPos, playerPos).normalize();
+        const dir = new THREE.Vector3().subVectors(targetPos, playerPos);
         dir.y = 0; 
+        dir.normalize(); // Normalize AFTER flattening Y
 
         // Current facing
         const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(this.player.mesh.quaternion);
@@ -89,7 +90,7 @@ export class CombatSystem {
 
         const angle = forward.angleTo(dir);
 
-        if (angle < 0.1) return; // Negligible turn
+        if (angle < 0.05) return { success: true, reason: 'Already facing' }; // Negligible turn
 
         // Cost: 180 degrees (PI) = 2.0 move units
         const cost = (angle / Math.PI) * 2.0;
@@ -101,6 +102,9 @@ export class CombatSystem {
             dummy.position.copy(playerPos);
             dummy.lookAt(targetPos.x, playerPos.y, targetPos.z);
             this.player.smoothLookAt(dummy.quaternion);
+            return { success: true };
+        } else {
+            return { success: false, reason: 'Not enough movement' };
         }
     }
 

@@ -132,12 +132,15 @@ export class Game {
 
         this.raycaster.setFromCamera(mouse, this.camera);
 
+        // Raycast against enemies
         const enemies = this.combatSystem.activeEnemies.map(e => e.mesh).filter(m => m);
+        if (enemies.length === 0) return;
+
         const intersects = this.raycaster.intersectObjects(enemies, true);
 
         if (intersects.length > 0) {
             const hitObj = intersects[0].object;
-            // Find the enemy wrapper from the mesh or its children
+            // Find the enemy wrapper
             const target = this.combatSystem.activeEnemies.find(e => {
                 let current = hitObj;
                 while(current) {
@@ -148,7 +151,10 @@ export class Game {
             });
 
             if (target) {
-                this.combatSystem.tryFaceTarget(target);
+                const result = this.combatSystem.tryFaceTarget(target);
+                if (!result.success && result.reason === 'Not enough movement') {
+                    this.showMessage("Not enough movement!", 1000);
+                }
             }
         }
     }

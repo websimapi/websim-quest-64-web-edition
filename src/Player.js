@@ -274,8 +274,8 @@ export class Player {
         } else {
              // Idle
              if (this.targetRotation) {
-                this.mesh.quaternion.slerp(this.targetRotation, 10 * dt);
-                if (this.mesh.quaternion.angleTo(this.targetRotation) < 0.05) {
+                this.mesh.quaternion.slerp(this.targetRotation, 5 * dt); // Slower, smoother turn
+                if (this.mesh.quaternion.angleTo(this.targetRotation) < 0.01) {
                     this.mesh.quaternion.copy(this.targetRotation);
                     this.targetRotation = null;
                 }
