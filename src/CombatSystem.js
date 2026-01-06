@@ -72,6 +72,34 @@ export class CombatSystem {
         this.currentMove = this.maxMove;
     }
 
+    tryFaceTarget(target) {
+        if (this.turn !== 'PLAYER' || !target.mesh) return;
+
+        const playerPos = this.player.mesh.position;
+        const targetPos = target.mesh.position;
+
+        // Dir to target
+        const dir = new THREE.Vector3().subVectors(targetPos, playerPos).normalize();
+        dir.y = 0; 
+
+        // Current facing
+        const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(this.player.mesh.quaternion);
+        forward.y = 0;
+        forward.normalize();
+
+        const angle = forward.angleTo(dir);
+
+        if (angle < 0.1) return; // Negligible turn
+
+        // Cost: 180 degrees (PI) = 2.0 move units
+        const cost = (angle / Math.PI) * 2.0;
+
+        if (this.currentMove >= cost) {
+            this.currentMove -= cost;
+            this.player.mesh.lookAt(targetPos.x, playerPos.y, targetPos.z);
+        }
+    }
+
     startEnemyTurn() {
         this.turn = 'ENEMY';
         this.enemyTurnIndex = 0;

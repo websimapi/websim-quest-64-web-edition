@@ -25,6 +25,7 @@ export class Game {
 
         // Inputs
         this.inputs = { x: 0, y: 0, magic: false };
+        this.raycaster = new THREE.Raycaster();
         this.setupInputs();
 
         // Subsystems
@@ -117,6 +118,39 @@ export class Game {
                spellMenu.classList.remove('active');
            } 
         });
+
+        // Battle Interaction (Click Enemy to Face)
+        this.renderer.domElement.addEventListener('click', (e) => this.handleSceneClick(e));
+    }
+
+    handleSceneClick(event) {
+        if (this.gameState !== 'BATTLE') return;
+
+        const mouse = new THREE.Vector2();
+        mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+        mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+        this.raycaster.setFromCamera(mouse, this.camera);
+
+        const enemies = this.combatSystem.activeEnemies.map(e => e.mesh).filter(m => m);
+        const intersects = this.raycaster.intersectObjects(enemies, true);
+
+        if (intersects.length > 0) {
+            const hitObj = intersects[0].object;
+            // Find the enemy wrapper from the mesh or its children
+            const target = this.combatSystem.activeEnemies.find(e => {
+                let current = hitObj;
+                while(current) {
+                    if (current === e.mesh) return true;
+                    current = current.parent;
+                }
+                return false;
+            });
+
+            if (target) {
+                this.combatSystem.tryFaceTarget(target);
+            }
+        }
     }
 
     handleSpellCast(element) {
