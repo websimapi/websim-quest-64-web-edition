@@ -120,9 +120,8 @@ export class Game {
 
     handleSpellCast(element) {
         if (this.gameState === 'ROAMING') {
-            // Cannot cast in roaming for this MVP unless we add platforming spells, 
-            // but let's allow "dry casting" for fun
-            this.player.castSpell(element, null); 
+            // Visual only
+            this.player.castSpell(element); 
         } else if (this.gameState === 'BATTLE') {
             this.combatSystem.playerCast(element);
         }
@@ -163,7 +162,13 @@ export class Game {
     loop() {
         requestAnimationFrame(() => this.loop());
         
-        const dt = Math.min(this.clock.getDelta(), 0.1);
+        let dt = Math.min(this.clock.getDelta(), 0.1);
+
+        // Time Dilation if Menu Open
+        const spellMenu = document.getElementById('spell-menu');
+        if (spellMenu && spellMenu.classList.contains('active')) {
+            dt *= 0.1;
+        }
 
         // Game State Logic
         if (this.gameState === 'ROAMING') {

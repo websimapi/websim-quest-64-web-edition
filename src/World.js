@@ -116,9 +116,11 @@ export class World {
     }
 
     update(dt, playerPos) {
-        // Remove dead enemies
-        this.enemies = this.enemies.filter(e => e.mesh);
-        this.enemies.forEach(e => e.update(dt, playerPos, this));
+        // Remove dead enemies safely
+        this.enemies = this.enemies.filter(e => e.mesh !== null);
+        this.enemies.forEach(e => {
+             if(e.mesh) e.update(dt, playerPos, this);
+        });
     }
 
     getHeight(x, z) {

@@ -2,25 +2,25 @@ import * as THREE from 'three';
 
 export const SPELLS = {
     fire: [
-        { name: "Fireball", type: "projectile", cost: 3, damage: 15, speed: 18, color: 0xff4400, scale: 0.5, shape: 'sphere' },
-        { name: "Inferno", type: "projectile", cost: 8, damage: 35, speed: 22, color: 0xff0000, scale: 1.0, shape: 'sphere' }
+        { name: "Fireball", type: "projectile", cost: 3, damage: 15, speed: 18, color: 0xff4400, scale: 0.5, shape: 'sphere', castTime: 0.8 },
+        { name: "Inferno", type: "projectile", cost: 8, damage: 35, speed: 22, color: 0xff0000, scale: 1.0, shape: 'sphere', castTime: 1.5 }
     ],
     water: [
-        { name: "Ice Shard", type: "projectile", cost: 2, damage: 8, speed: 25, color: 0x88ccff, scale: 0.3, shape: 'cone' },
-        { name: "Heal", type: "heal", cost: 10, power: 25, color: 0x00ffff }
+        { name: "Ice Shard", type: "projectile", cost: 2, damage: 8, speed: 25, color: 0x88ccff, scale: 0.3, shape: 'cone', castTime: 0.5 },
+        { name: "Heal", type: "heal", cost: 10, power: 25, color: 0x00ffff, castTime: 1.0 }
     ],
     earth: [
-        { name: "Rock", type: "projectile", cost: 4, damage: 20, speed: 12, color: 0x8d6e63, scale: 0.6, shape: 'box' },
-        { name: "Spirit Armor", type: "buff", cost: 15, duration: 10, color: 0x5d4037 } // Placeholder for defense
+        { name: "Rock", type: "projectile", cost: 4, damage: 20, speed: 12, color: 0x8d6e63, scale: 0.6, shape: 'box', castTime: 1.2 },
+        { name: "Spirit Armor", type: "buff", cost: 15, duration: 10, color: 0x5d4037, castTime: 1.0 }
     ],
     wind: [
-        { name: "Wind Cutter", type: "projectile", cost: 2, damage: 6, speed: 30, color: 0xffff88, scale: 0.4, shape: 'plane' },
-        { name: "Cyclone", type: "projectile", cost: 12, damage: 25, speed: 15, color: 0xffeb3b, scale: 1.5, shape: 'cylinder' }
+        { name: "Wind Cutter", type: "projectile", cost: 2, damage: 6, speed: 30, color: 0xffff88, scale: 0.4, shape: 'plane', castTime: 0.3 },
+        { name: "Cyclone", type: "projectile", cost: 12, damage: 25, speed: 15, color: 0xffeb3b, scale: 1.5, shape: 'cylinder', castTime: 0.8 }
     ]
 };
 
 export class SpellProjectile {
-    constructor(scene, startPos, targetPos, directionQuat, config) {
+    constructor(scene, startPos, directionQuat, config) {
         this.scene = scene;
         this.damage = config.damage;
         this.speed = config.speed;
@@ -42,23 +42,12 @@ export class SpellProjectile {
         this.mesh = new THREE.Mesh(geo, mat);
         this.mesh.position.copy(startPos);
         
-        if (config.shape === 'plane') {
-            this.mesh.lookAt(targetPos || new THREE.Vector3(0,0,0)); // Billboarding rough
-        }
-
-        // Aim
-        if (targetPos) {
-            this.velocity = new THREE.Vector3().subVectors(targetPos, startPos).normalize().multiplyScalar(this.speed);
-            this.mesh.lookAt(targetPos);
-        } else {
-            const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(directionQuat);
-            this.velocity = forward.multiplyScalar(this.speed);
-            this.mesh.quaternion.copy(directionQuat);
-        }
+        // Directional Aiming (No auto-lock)
+        const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(directionQuat);
+        this.velocity = forward.multiplyScalar(this.speed);
+        this.mesh.quaternion.copy(directionQuat);
 
         this.scene.add(this.mesh);
-        
-        // Particle emitter could go here
     }
 
     update(dt, enemies) {

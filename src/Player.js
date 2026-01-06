@@ -25,6 +25,13 @@ export class Player {
             mp: 24,
             maxMp: 24
         };
+        
+        this.castState = {
+            active: false,
+            timer: 0,
+            maxTime: 0,
+            onComplete: null
+        };
 
         this.recalcStats();
     }
@@ -96,6 +103,26 @@ export class Player {
 
     update(dt, inputs, world, boundaryCenter = null, boundaryRadius = 0) {
         this.regenMp(dt);
+
+        // Casting State logic
+        if (this.castState.active) {
+            this.castState.timer -= dt;
+            
+            // Animation for casting (shake)
+            const vibration = Math.sin(Date.now() * 0.05) * 0.02;
+            this.mesh.position.x += vibration;
+            this.mesh.children[2].rotation.x = 0.5 - (1 - this.castState.timer/this.castState.maxTime);
+
+            if (this.castState.timer <= 0) {
+                // Complete
+                if (this.castState.onComplete) this.castState.onComplete();
+                this.stopCasting();
+            }
+            
+            this.isMoving = false;
+            return; // Cannot move while casting
+        }
+
         this.isMoving = (inputs.x !== 0 || inputs.y !== 0);
 
         if (this.isMoving) {
@@ -144,22 +171,22 @@ export class Player {
         }
     }
 
-    castSpell(element, targetPos) {
-        // Visuals handled by CombatSystem usually, but player initiates animation
+    startCasting(spellConfig, onComplete) {
+        this.castState.active = true;
+        this.castState.maxTime = spellConfig.castTime || 1.0;
+        this.castState.timer = this.castState.maxTime;
+        this.castState.onComplete = onComplete;
         this.audioManager.playSfx('cast');
-        
-        // Simple animation: Raise staff
-        const staff = this.mesh.children[2];
-        const originalRot = staff.rotation.x;
-        
-        // Tween-like animation manually
-        let t = 0;
-        const animateCast = () => {
-            t += 0.1;
-            staff.rotation.x = originalRot - Math.sin(t) * 1.0;
-            if (t < Math.PI) requestAnimationFrame(animateCast);
-            else staff.rotation.x = originalRot;
-        };
-        animateCast();
+    }
+
+    stopCasting() {
+        this.castState.active = false;
+        this.castState.onComplete = null;
+        this.mesh.children[2].rotation.x = 0.5; // Reset staff
+    }
+    
+    // Legacy method for roaming instant cast (if needed)
+    castSpell(element) {
+         this.audioManager.playSfx('cast');
     }
 }

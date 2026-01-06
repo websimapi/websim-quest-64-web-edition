@@ -41,9 +41,7 @@ export class Enemy {
         if (!this.mesh) return;
 
         if (this.state === 'BATTLE') {
-            // Battle logic handled by CombatSystem primarily, 
-            // but we can animate idling here
-            this.mesh.rotation.y += dt;
+            // Battle Logic now delegated to battleUpdate called by CombatSystem
             return;
         }
 
@@ -109,11 +107,67 @@ export class Enemy {
         return false;
     }
 
+    battleUpdate(dt, playerPos) {
+        if (!this.mesh) return;
+        
+        // AI State Machine
+        if (!this.aiState) {
+            this.aiState = { state: 'CHASE', timer: 0 };
+        }
+
+        const dist = this.mesh.position.distanceTo(playerPos);
+        const dir = new THREE.Vector3().subVectors(playerPos, this.mesh.position).normalize();
+        dir.y = 0; // Keep horizontal
+
+        switch (this.aiState.state) {
+            case 'CHASE':
+                if (dist < 5.0) {
+                    this.aiState.state = 'TELEGRAPH';
+                    this.aiState.timer = 1.0;
+                } else {
+                    this.mesh.position.add(dir.multiplyScalar(this.speed * dt));
+                    this.mesh.lookAt(playerPos);
+                }
+                break;
+            case 'TELEGRAPH':
+                this.aiState.timer -= dt;
+                this.mesh.lookAt(playerPos);
+                // Flash warning
+                this.mesh.material.color.setHex((Date.now() % 200 < 100) ? 0xff0000 : 0x882222);
+                
+                if (this.aiState.timer <= 0) {
+                    this.aiState.state = 'ATTACK';
+                    this.aiState.timer = 0.5; // Attack duration
+                    this.mesh.material.color.setHex(0x882222);
+                    // Store attack direction
+                    this.aiState.attackDir = dir.clone();
+                }
+                break;
+            case 'ATTACK':
+                this.aiState.timer -= dt;
+                // Dash forward
+                this.mesh.position.add(this.aiState.attackDir.clone().multiplyScalar(this.speed * 4 * dt));
+                
+                if (this.aiState.timer <= 0) {
+                    this.aiState.state = 'COOLDOWN';
+                    this.aiState.timer = 2.0;
+                }
+                break;
+            case 'COOLDOWN':
+                this.aiState.timer -= dt;
+                // Slow strafe or idle
+                if (this.aiState.timer <= 0) {
+                    this.aiState.state = 'CHASE';
+                }
+                break;
+        }
+    }
+
     dispose() {
         if (this.mesh) {
             this.scene.remove(this.mesh);
-            this.mesh.geometry.dispose();
-            this.mesh.material.dispose();
+            if (this.mesh.geometry) this.mesh.geometry.dispose();
+            if (this.mesh.material) this.mesh.material.dispose();
             this.mesh = null;
         }
     }

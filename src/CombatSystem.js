@@ -23,6 +23,7 @@ export class CombatSystem {
         
         // Lock enemy state
         enemy.state = 'BATTLE';
+        enemy.aiState = null; // Reset AI
 
         // Create Boundary Ring
         const geometry = new THREE.TorusGeometry(this.radius, 0.2, 8, 32);
@@ -50,41 +51,41 @@ export class CombatSystem {
     }
 
     playerCast(element) {
-        if (!this.active) return;
+        if (!this.active || this.player.castState.active) return;
         
-        // Determine spell based on Spirit Level
         const level = this.player.spirits[element];
-        const spellIndex = level >= 5 ? 1 : 0; // Unlock 2nd spell at level 5
+        const spellIndex = level >= 5 ? 1 : 0;
         const spellConfig = SPELLS[element][spellIndex];
         
-        if (this.player.stats.mp < spellConfig.cost) {
-            // Not enough MP feedback?
-            return;
-        }
+        if (this.player.stats.mp < spellConfig.cost) return;
 
+        // Start Casting (Delay)
+        this.player.startCasting(spellConfig, () => {
+            this.executeSpell(element, spellConfig);
+        });
+    }
+
+    executeSpell(element, spellConfig) {
         this.player.stats.mp -= spellConfig.cost;
-        this.player.castSpell(element); // Visuals
-        
+
         if (spellConfig.type === 'heal') {
             this.player.stats.hp = Math.min(this.player.stats.maxHp, this.player.stats.hp + spellConfig.power);
-            this.audioManager.playSfx('cast'); // Use cast sound for heal
+            this.audioManager.playSfx('cast');
             return;
         }
 
-        // Projectile
         const spawnPos = this.player.mesh.position.clone();
         spawnPos.y += 1.5;
         
         let sfx = 'wind';
         if (element === 'fire') sfx = 'fire';
         if (element === 'earth') sfx = 'hit';
-        
         this.audioManager.playSfx(sfx);
 
+        // No lock-on: fires in player's forward direction
         const projectile = new SpellProjectile(
             this.scene, 
             spawnPos, 
-            this.activeEnemy.mesh.position,
             this.player.mesh.quaternion,
             spellConfig
         );
@@ -93,6 +94,7 @@ export class CombatSystem {
 
     update(dt, inputs) {
         if (!this.active || !this.activeEnemy) return 'ESCAPE';
+        if (!this.activeEnemy.mesh) return 'VICTORY'; // Enemy died/cleaned up unexpectedly
 
         // Update Player
         this.player.update(dt, inputs, null, this.center, this.radius);
@@ -103,11 +105,32 @@ export class CombatSystem {
             return 'ESCAPE';
         }
 
-        // Update Enemy (Simple attack logic)
-        // Move towards player
-        const dir = new THREE.Vector3().subVectors(this.player.mesh.position, this.activeEnemy.mesh.position).normalize();
-        this.activeEnemy.mesh.position.add(dir.multiplyScalar(this.activeEnemy.speed * 0.5 * dt));
-        this.activeEnemy.mesh.lookAt(this.player.mesh.position);
+        // Update Enemy AI
+        this.activeEnemy.battleUpdate(dt, this.player.mesh.position);
+
+        // Player vs Enemy Collision (Damage)
+        if (this.activeEnemy.mesh && this.player.mesh.position.distanceTo(this.activeEnemy.mesh.position) < 1.5) {
+            if (!this.player.invulnerable) {
+                this.player.stats.hp -= 5;
+                this.audioManager.playSfx('hit');
+                // Knockback
+                const push = new THREE.Vector3().subVectors(this.player.mesh.position, this.activeEnemy.mesh.position).normalize();
+                this.player.mesh.position.add(push.multiplyScalar(3));
+                
+                // Interrupt Cast
+                if (this.player.castState.active) {
+                    this.player.stopCasting();
+                }
+
+                // Simple I-frame
+                this.player.invulnerable = true;
+                this.player.mesh.children.forEach(c => c.material.wireframe = true);
+                setTimeout(() => {
+                    this.player.invulnerable = false;
+                     if(this.player.mesh) this.player.mesh.children.forEach(c => c.material.wireframe = false);
+                }, 1000);
+            }
+        }
 
         // Update Projectiles
         for (let i = this.projectiles.length - 1; i >= 0; i--) {
