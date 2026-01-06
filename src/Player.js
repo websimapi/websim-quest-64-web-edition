@@ -258,12 +258,6 @@ export class Player {
 
             this.mesh.position.copy(nextPos);
 
-            // Terrain clamp
-            if (world) {
-                const groundH = world.getHeight(this.mesh.position.x, this.mesh.position.z);
-                this.mesh.position.y = groundH;
-            }
-
             // Bobbing animation for model group
             if(this.model) {
                 const walkCycle = Date.now() * 0.015;
@@ -281,6 +275,12 @@ export class Player {
                  if (this.rightArm) this.rightArm.rotation.x = THREE.MathUtils.lerp(this.rightArm.rotation.x, -0.5, 0.1);
                  if (this.model) this.model.position.x = 0; // Reset vibration
              }
+        }
+
+        // Always clamp to terrain (even when not moving)
+        if (world) {
+            const groundH = world.getHeight(this.mesh.position.x, this.mesh.position.z);
+            this.mesh.position.y = groundH;
         }
     }
 

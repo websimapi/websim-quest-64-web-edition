@@ -142,6 +142,7 @@ export class SpellProjectile {
         this.scene = scene;
         this.world = world;
         this.config = config;
+        this.target = targetEnemy;
         this.life = 3.0;
         this.age = 0;
         this.particles = [];
@@ -301,26 +302,32 @@ export class SpellProjectile {
         } 
         else {
             // Standard Projectile
+            const startPos = this.mesh.position.clone();
             const move = this.velocity.clone().multiplyScalar(dt);
-            this.mesh.position.add(move);
-            this.mesh.rotation.z += dt * 10;
-            this.mesh.rotation.x += dt * 5;
-
+            const nextPos = startPos.clone().add(move);
+            
             // Homing Logic for Wind Tornado
-            if (this.config.type === 'homing' && enemies.length > 0) {
-                // Find closest
-                let closest = enemies[0];
-                let d = 999;
-                for(let e of enemies) {
-                    const dist = this.mesh.position.distanceTo(e.mesh.position);
-                    if (dist < d) { d = dist; closest = e; }
+            if (this.config.type === 'homing') {
+                let target = this.target;
+                if ((!target || target.hp <= 0) && enemies.length > 0) {
+                    // Find closest if original target dead or null
+                    let d = 999;
+                    for(let e of enemies) {
+                        const dist = this.mesh.position.distanceTo(e.mesh.position);
+                        if (dist < d) { d = dist; target = e; }
+                    }
                 }
                 
-                if (d < 20) {
-                    const dir = new THREE.Vector3().subVectors(closest.mesh.position, this.mesh.position).normalize();
+                if (target && target.hp > 0 && this.mesh.position.distanceTo(target.mesh.position) < 25) {
+                    const dir = new THREE.Vector3().subVectors(target.mesh.position, this.mesh.position).normalize();
                     this.velocity.lerp(dir.multiplyScalar(this.config.speed), dt * 3);
                 }
             }
+
+            // Move
+            this.mesh.position.copy(nextPos);
+            this.mesh.rotation.z += dt * 10;
+            this.mesh.rotation.x += dt * 5;
 
             // Terrain Collision
             if (this.world) {
@@ -331,10 +338,28 @@ export class SpellProjectile {
                 }
             }
 
-            // Enemy Collision
+            // Enemy Collision with Sweep (Prevents tunneling)
+            const ray = new THREE.Ray(startPos, move.clone().normalize());
+            const moveDist = move.length();
+            
             for (let enemy of enemies) {
-                if (this.mesh.position.distanceTo(enemy.mesh.position) < (1.5 * this.config.scale)) {
+                // Sphere check first
+                const dist = this.mesh.position.distanceTo(enemy.mesh.position);
+                const hitRadius = 1.0 + this.config.scale;
+                
+                if (dist < hitRadius) {
                     return { result: 'HIT', target: enemy, damage: this.config.damage };
+                }
+                
+                // Sweep check
+                const enemyVec = new THREE.Vector3().subVectors(enemy.mesh.position, startPos);
+                const projectedDist = enemyVec.dot(ray.direction);
+                
+                if (projectedDist > 0 && projectedDist < moveDist) {
+                    const closestPointOnRay = ray.at(projectedDist, new THREE.Vector3());
+                    if (closestPointOnRay.distanceTo(enemy.mesh.position) < hitRadius) {
+                         return { result: 'HIT', target: enemy, damage: this.config.damage };
+                    }
                 }
             }
         }

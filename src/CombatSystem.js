@@ -170,33 +170,56 @@ export class CombatSystem {
         if (element === 'earth') sfx = 'hit'; // Thud
         this.audioManager.playSfx(sfx);
 
-        // Auto-target logic for pillars/homing
+        // Auto-target logic
         let target = null;
         if (this.activeEnemies.length > 0) {
             // Find closest enemy in front of player
             const forward = new THREE.Vector3(0,0,-1).applyQuaternion(this.player.mesh.quaternion);
-            let bestDot = 0.5; // 45 degree cone roughly
+            let bestDot = 0.3; // Wider cone (approx 70 deg) for better feel
+            let minDist = 999;
             
             for(let e of this.activeEnemies) {
                 if(e.hp <= 0) continue;
+                const dist = e.mesh.position.distanceTo(this.player.mesh.position);
                 const dirToEnemy = new THREE.Vector3().subVectors(e.mesh.position, this.player.mesh.position).normalize();
                 const dot = forward.dot(dirToEnemy);
+                
+                // Prioritize closer enemies within cone
                 if(dot > bestDot) {
-                    bestDot = dot;
-                    target = e;
+                    if (dist < minDist) {
+                        minDist = dist;
+                        target = e;
+                    }
                 }
             }
-            // Fallback: closest
-            if(!target && this.activeEnemies.length > 0) {
-                 target = this.activeEnemies[0];
-            }
+        }
+
+        // Calculate Aim Direction
+        // Instead of using staff rotation (which might be pointing up due to animation),
+        // we calculate the vector from staff tip to target (or forward).
+        const spawnPos = staffState.position.clone();
+        const aimObj = new THREE.Object3D();
+        aimObj.position.copy(spawnPos);
+
+        if (target) {
+            // Aim at enemy center/mass
+            const targetPos = target.mesh.position.clone();
+            targetPos.y += (target.yOffset || 0.5);
+            aimObj.lookAt(targetPos);
+        } else {
+            // Free aim: Use player facing direction, but leveled to horizon
+            const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(this.player.mesh.quaternion);
+            const targetPos = spawnPos.clone().add(forward.multiplyScalar(20));
+            // Adjust height to be same as spawn height to prevent shooting into sky/ground if tilted
+            targetPos.y = spawnPos.y; 
+            aimObj.lookAt(targetPos);
         }
 
         // Fire Spell
         const projectile = new SpellProjectile(
             this.scene, 
-            staffState.position, 
-            staffState.quaternion, // Direction from player
+            spawnPos, 
+            aimObj.quaternion, 
             spellConfig,
             this.world,
             target
