@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { Enemy } from './Enemy.js';
 
 export class World {
     constructor(scene) {
@@ -6,6 +7,7 @@ export class World {
         this.ground = null;
         this.size = 200;
         this.segments = 64;
+        this.enemies = [];
     }
 
     async loadAssets() {
@@ -49,6 +51,7 @@ export class World {
 
         // Add some trees
         this.generateTrees();
+        this.generateEnemies();
         
         // Lights
         const ambient = new THREE.AmbientLight(0xffffff, 0.6);
@@ -65,41 +68,55 @@ export class World {
     }
 
     generateTrees() {
-        const treeGeo = new THREE.ConeGeometry(1, 4, 4); // Low poly cone
+        const treeGeo = new THREE.ConeGeometry(1, 4, 4); 
         const treeMat = new THREE.MeshStandardMaterial({ color: 0x2e7d32, flatShading: true });
-        
         const trunkGeo = new THREE.CylinderGeometry(0.3, 0.3, 1, 4);
         const trunkMat = new THREE.MeshStandardMaterial({ color: 0x5d4037 });
 
-        for(let i=0; i<30; i++) {
-            const x = (Math.random() - 0.5) * 100;
-            const z = (Math.random() - 0.5) * 100;
-            
-            // Keep center clear
-            if(Math.sqrt(x*x + z*z) < 10) continue;
+        for(let i=0; i<40; i++) {
+            const x = (Math.random() - 0.5) * 150;
+            const z = (Math.random() - 0.5) * 150;
+            if(Math.sqrt(x*x + z*z) < 15) continue; // Clear start area
 
             const y = this.getHeight(x, z);
-
             const tree = new THREE.Group();
-            
             const trunk = new THREE.Mesh(trunkGeo, trunkMat);
             trunk.position.y = 0.5;
             trunk.castShadow = true;
-            
             const leaves = new THREE.Mesh(treeGeo, treeMat);
             leaves.position.y = 2.5;
             leaves.castShadow = true;
-
             tree.add(trunk);
             tree.add(leaves);
             tree.position.set(x, y, z);
-            
-            // Random scaling
             const scale = 0.8 + Math.random() * 0.5;
             tree.scale.set(scale, scale, scale);
-            
             this.scene.add(tree);
         }
+    }
+
+    generateEnemies() {
+        const loader = new THREE.TextureLoader();
+        loader.load('enemy_texture.png', (tex) => {
+            tex.magFilter = THREE.NearestFilter;
+            this.enemies.forEach(e => e.setTexture(tex));
+        });
+
+        for(let i=0; i<10; i++) {
+            const angle = Math.random() * Math.PI * 2;
+            const dist = 20 + Math.random() * 60;
+            const x = Math.cos(angle) * dist;
+            const z = Math.sin(angle) * dist;
+            
+            const enemy = new Enemy(this.scene, x, z);
+            // Height adjust
+            enemy.mesh.position.y = this.getHeight(x, z) + 0.7;
+            this.enemies.push(enemy);
+        }
+    }
+
+    update(dt, playerPos) {
+        this.enemies.forEach(e => e.update(dt, playerPos, this));
     }
 
     getHeight(x, z) {

@@ -1,6 +1,5 @@
 import * as THREE from 'three';
-import { Enemy } from './Enemy.js';
-import { SpellProjectile } from './Spells.js';
+import { SpellProjectile, SPELLS } from './Spells.js';
 
 export class CombatSystem {
     constructor(scene, player, audioManager) {
@@ -13,34 +12,26 @@ export class CombatSystem {
         this.radius = 15;
         this.center = new THREE.Vector3();
         
-        this.enemies = [];
+        this.activeEnemy = null;
         this.projectiles = [];
     }
 
-    initBattle(centerPos) {
+    initBattle(centerPos, enemy) {
         this.active = true;
         this.center.copy(centerPos);
+        this.activeEnemy = enemy;
         
+        // Lock enemy state
+        enemy.state = 'BATTLE';
+
         // Create Boundary Ring
         const geometry = new THREE.TorusGeometry(this.radius, 0.2, 8, 32);
-        const material = new THREE.MeshBasicMaterial({ color: 0xffff00, transparent: true, opacity: 0.6 });
+        const material = new THREE.MeshBasicMaterial({ color: 0xffaa00, transparent: true, opacity: 0.6 });
         this.boundaryMesh = new THREE.Mesh(geometry, material);
         this.boundaryMesh.rotation.x = Math.PI / 2;
         this.boundaryMesh.position.copy(centerPos);
-        this.boundaryMesh.position.y += 1; // Float slightly
+        this.boundaryMesh.position.y += 1;
         this.scene.add(this.boundaryMesh);
-
-        // Spawn Enemy
-        const enemy = new Enemy(this.scene);
-        // Position enemy opposite to player relative to center? Or just random inside ring
-        const angle = Math.random() * Math.PI * 2;
-        const dist = this.radius * 0.5;
-        enemy.mesh.position.set(
-            this.center.x + Math.cos(angle) * dist,
-            this.center.y, // Will be clamped by gravity/world later
-            this.center.z + Math.sin(angle) * dist
-        );
-        this.enemies.push(enemy);
     }
 
     cleanup() {
@@ -49,8 +40,11 @@ export class CombatSystem {
             this.scene.remove(this.boundaryMesh);
             this.boundaryMesh = null;
         }
-        this.enemies.forEach(e => e.dispose());
-        this.enemies = [];
+        if (this.activeEnemy && this.activeEnemy.hp > 0) {
+            this.activeEnemy.state = 'ROAM'; // If escaped
+        }
+        this.activeEnemy = null;
+
         this.projectiles.forEach(p => p.dispose());
         this.projectiles = [];
     }
@@ -58,40 +52,49 @@ export class CombatSystem {
     playerCast(element) {
         if (!this.active) return;
         
-        this.player.castSpell(element);
+        // Determine spell based on Spirit Level
+        const level = this.player.spirits[element];
+        const spellIndex = level >= 5 ? 1 : 0; // Unlock 2nd spell at level 5
+        const spellConfig = SPELLS[element][spellIndex];
         
-        // Find nearest enemy
-        let target = this.enemies[0]; // Simple single target for now
+        if (this.player.stats.mp < spellConfig.cost) {
+            // Not enough MP feedback?
+            return;
+        }
+
+        this.player.stats.mp -= spellConfig.cost;
+        this.player.castSpell(element); // Visuals
         
+        if (spellConfig.type === 'heal') {
+            this.player.stats.hp = Math.min(this.player.stats.maxHp, this.player.stats.hp + spellConfig.power);
+            this.audioManager.playSfx('cast'); // Use cast sound for heal
+            return;
+        }
+
+        // Projectile
         const spawnPos = this.player.mesh.position.clone();
         spawnPos.y += 1.5;
-
-        let spellType = 'projectile';
-        let color = 0xffffff;
+        
         let sfx = 'wind';
-
-        if (element === 'fire') { color = 0xff0000; sfx = 'fire'; }
-        if (element === 'water') { color = 0x0000ff; sfx = 'wind'; } // Ice shard
-        if (element === 'earth') { color = 0x4caf50; sfx = 'hit'; } // Rock
-        if (element === 'wind') { color = 0xffeb3b; sfx = 'wind'; }
-
+        if (element === 'fire') sfx = 'fire';
+        if (element === 'earth') sfx = 'hit';
+        
         this.audioManager.playSfx(sfx);
 
         const projectile = new SpellProjectile(
             this.scene, 
             spawnPos, 
-            target ? target.mesh.position : null,
+            this.activeEnemy.mesh.position,
             this.player.mesh.quaternion,
-            color,
-            element
+            spellConfig
         );
         this.projectiles.push(projectile);
     }
 
     update(dt, inputs) {
-        if (!this.active) return;
+        if (!this.active || !this.activeEnemy) return 'ESCAPE';
 
-        // Update Player in combat context (movement confined usually, but Quest 64 allows running out)
+        // Update Player
         this.player.update(dt, inputs, null, this.center, this.radius);
         
         // Check Escape
@@ -100,25 +103,25 @@ export class CombatSystem {
             return 'ESCAPE';
         }
 
-        // Update Enemies
-        this.enemies.forEach(enemy => {
-            enemy.update(dt, this.player.mesh.position);
-        });
+        // Update Enemy (Simple attack logic)
+        // Move towards player
+        const dir = new THREE.Vector3().subVectors(this.player.mesh.position, this.activeEnemy.mesh.position).normalize();
+        this.activeEnemy.mesh.position.add(dir.multiplyScalar(this.activeEnemy.speed * 0.5 * dt));
+        this.activeEnemy.mesh.lookAt(this.player.mesh.position);
 
         // Update Projectiles
         for (let i = this.projectiles.length - 1; i >= 0; i--) {
             const p = this.projectiles[i];
-            const result = p.update(dt, this.enemies);
+            const result = p.update(dt, [this.activeEnemy]);
             
-            if (result === 'HIT') {
+            if (result.result === 'HIT') {
                 this.audioManager.playSfx('hit');
-                // Assume hit first enemy
-                const dead = this.enemies[0].takeDamage(10);
+                const dead = result.target.takeDamage(result.damage);
                 if (dead) return 'VICTORY';
                 
                 p.dispose();
                 this.projectiles.splice(i, 1);
-            } else if (result === 'TIMEOUT') {
+            } else if (result.result === 'TIMEOUT') {
                 p.dispose();
                 this.projectiles.splice(i, 1);
             }

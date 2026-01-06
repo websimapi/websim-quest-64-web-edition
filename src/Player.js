@@ -8,12 +8,25 @@ export class Player {
         this.speed = 8;
         this.isMoving = false;
         
-        this.stats = {
-            hp: 50,
-            maxHp: 50,
-            mp: 20,
-            maxMp: 20
+        this.spirits = {
+            fire: 1,
+            water: 1,
+            earth: 1,
+            wind: 1
         };
+
+        this.xp = 0;
+        this.nextLevelXp = 50;
+        this.level = 1;
+
+        this.stats = {
+            hp: 55,
+            maxHp: 55,
+            mp: 24,
+            maxMp: 24
+        };
+
+        this.recalcStats();
     }
 
     async loadAssets() {
@@ -55,7 +68,34 @@ export class Player {
         this.scene.add(this.mesh);
     }
 
+    recalcStats() {
+        this.stats.maxHp = 50 + (this.spirits.earth * 5);
+        this.stats.maxMp = 20 + (this.spirits.water * 2) + (this.spirits.wind * 2);
+        
+        // Clamp current
+        this.stats.hp = Math.min(this.stats.hp, this.stats.maxHp);
+        this.stats.mp = Math.min(this.stats.mp, this.stats.maxMp);
+    }
+
+    gainXp(amount) {
+        this.xp += amount;
+        if (this.xp >= this.nextLevelXp) {
+            this.xp -= this.nextLevelXp;
+            this.level++;
+            this.nextLevelXp = Math.floor(this.nextLevelXp * 1.5);
+            return true; // Level Up
+        }
+        return false;
+    }
+
+    regenMp(dt) {
+        // Base regen + water bonus
+        const rate = 0.5 + (this.spirits.water * 0.2);
+        this.stats.mp = Math.min(this.stats.maxMp, this.stats.mp + rate * dt);
+    }
+
     update(dt, inputs, world, boundaryCenter = null, boundaryRadius = 0) {
+        this.regenMp(dt);
         this.isMoving = (inputs.x !== 0 || inputs.y !== 0);
 
         if (this.isMoving) {

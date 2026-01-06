@@ -148,6 +148,18 @@ export class Game {
         compassArrow.style.transform = `translate(-50%, -100%) rotate(${-angle}rad)`;
     }
 
+    updateUI() {
+        document.getElementById('hp-bar').innerText = `HP: ${Math.floor(this.player.stats.hp)}/${this.player.stats.maxHp}`;
+        document.getElementById('mp-bar').innerText = `MP: ${Math.floor(this.player.stats.mp)}/${this.player.stats.maxMp}`;
+        
+        const s = this.player.spirits;
+        document.getElementById('spirit-stats').innerHTML = 
+            `<span style="color:#d32f2f">FIRE: ${s.fire}</span><br>` +
+            `<span style="color:#1976d2">WATER: ${s.water}</span><br>` +
+            `<span style="color:#388e3c">EARTH: ${s.earth}</span><br>` +
+            `<span style="color:#fbc02d">WIND: ${s.wind}</span>`;
+    }
+
     loop() {
         requestAnimationFrame(() => this.loop());
         
@@ -156,35 +168,84 @@ export class Game {
         // Game State Logic
         if (this.gameState === 'ROAMING') {
             this.player.update(dt, this.inputs, this.world);
+            this.world.update(dt, this.player.mesh.position);
             
-            // Check for random encounters
-            if (this.player.isMoving) {
-                if (Math.random() < 0.002) { // Low chance per frame
-                    this.startBattle();
+            // Check for contact encounters
+            for (let enemy of this.world.enemies) {
+                if (enemy.hp <= 0) continue;
+                if (enemy.mesh.position.distanceTo(this.player.mesh.position) < 2.0) {
+                    this.startBattle(enemy);
+                    break;
                 }
             }
 
         } else if (this.gameState === 'BATTLE') {
             const battleResult = this.combatSystem.update(dt, this.inputs);
-            if (battleResult === 'VICTORY' || battleResult === 'ESCAPE') {
+            if (battleResult === 'VICTORY') {
+                this.handleVictory();
+                this.endBattle();
+            } else if (battleResult === 'ESCAPE') {
                 this.endBattle();
             }
         }
 
+        this.updateUI();
         this.updateCamera();
         this.renderer.render(this.scene, this.camera);
     }
 
-    startBattle() {
+    startBattle(enemy) {
         this.gameState = 'BATTLE';
-        this.showMessage("Enemy encounter!");
-        this.combatSystem.initBattle(this.player.mesh.position);
+        this.showMessage("BATTLE START!");
+        this.combatSystem.initBattle(this.player.mesh.position, enemy);
     }
 
     endBattle() {
         this.gameState = 'ROAMING';
         this.showMessage("");
         this.combatSystem.cleanup();
+    }
+    
+    handleVictory() {
+        const leveledUp = this.player.gainXp(20);
+        this.showMessage(leveledUp ? "LEVEL UP!" : "VICTORY!");
+        
+        if (leveledUp) {
+            this.showLevelUpMenu();
+        }
+    }
+
+    showLevelUpMenu() {
+        const overlay = document.getElementById('levelup-overlay');
+        overlay.style.display = 'flex';
+        
+        const close = () => {
+            overlay.style.display = 'none';
+            this.player.recalcStats();
+            // Restore HP/MP on level up? Sure
+            this.player.stats.hp = this.player.stats.maxHp;
+            this.player.stats.mp = this.player.stats.maxMp;
+        };
+
+        const handler = (e) => {
+            const id = e.target.id;
+            if (id.includes('fire')) this.player.spirits.fire++;
+            if (id.includes('water')) this.player.spirits.water++;
+            if (id.includes('earth')) this.player.spirits.earth++;
+            if (id.includes('wind')) this.player.spirits.wind++;
+            
+            // Remove listeners
+            document.querySelectorAll('.element-btn').forEach(b => {
+               // This is a bit messy because the main UI also has these classes
+               // But the IDs are specific for the modal
+            });
+            close();
+        };
+
+        document.getElementById('lvl-fire').onclick = handler;
+        document.getElementById('lvl-water').onclick = handler;
+        document.getElementById('lvl-earth').onclick = handler;
+        document.getElementById('lvl-wind').onclick = handler;
     }
 
     showMessage(msg) {
