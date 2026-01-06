@@ -79,6 +79,13 @@ export class CombatSystem {
     }
 
     prepareNextEnemy() {
+        // If player is out of bounds, do not proceed with other enemies, end phase to trigger escape
+        const dist = this.player.mesh.position.distanceTo(this.center);
+        if (dist > this.radius) {
+            this.startPlayerTurn();
+            return;
+        }
+
         while(this.enemyTurnIndex < this.activeEnemies.length) {
             const enemy = this.activeEnemies[this.enemyTurnIndex];
             if(enemy && enemy.mesh && enemy.hp > 0) {
@@ -265,7 +272,11 @@ export class CombatSystem {
         this.player.update(dt, inputs, world, this.center, this.radius, canMove);
         
         const dist = this.player.mesh.position.distanceTo(this.center);
-        if (dist > this.radius) {
+        
+        // Only trigger escape during PLAYER turn.
+        // If it is ENEMY turn, we wait for the enemy to finish their attack/return animation
+        // The prepareNextEnemy function will handle switching back to PLAYER turn if out of bounds.
+        if (dist > this.radius && this.turn === 'PLAYER') {
             return 'ESCAPE';
         }
 
