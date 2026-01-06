@@ -157,6 +157,28 @@ export class Game {
             `<span style="color:#1976d2">WATER: ${s.water}</span><br>` +
             `<span style="color:#388e3c">EARTH: ${s.earth}</span><br>` +
             `<span style="color:#fbc02d">WIND: ${s.wind}</span>`;
+        
+        // Battle Specific UI
+        const turnInd = document.getElementById('turn-indicator');
+        const moveBar = document.getElementById('move-bar-container');
+        const moveFill = document.getElementById('move-bar-fill');
+
+        if (this.gameState === 'BATTLE') {
+            turnInd.style.display = 'block';
+            turnInd.innerText = this.combatSystem.turn + " TURN";
+            turnInd.style.color = this.combatSystem.turn === 'PLAYER' ? '#00ff00' : '#ff0000';
+            
+            if (this.combatSystem.turn === 'PLAYER') {
+                moveBar.style.display = 'block';
+                const pct = Math.max(0, (this.combatSystem.currentMove / this.combatSystem.maxMove) * 100);
+                moveFill.style.width = pct + '%';
+            } else {
+                moveBar.style.display = 'none';
+            }
+        } else {
+            turnInd.style.display = 'none';
+            moveBar.style.display = 'none';
+        }
     }
 
     loop() {

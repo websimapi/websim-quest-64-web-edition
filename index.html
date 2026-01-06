@@ -155,6 +155,34 @@
             pointer-events: auto;
         }
 
+        #turn-indicator {
+            position: absolute;
+            top: 100px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 20px;
+            color: #ffcc00;
+            text-shadow: 2px 2px 0 #000;
+            display: none;
+        }
+
+        #move-bar-container {
+            position: absolute;
+            bottom: 220px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 200px;
+            height: 10px;
+            background: #333;
+            border: 2px solid white;
+            display: none;
+        }
+        #move-bar-fill {
+            width: 100%;
+            height: 100%;
+            background: #ffff00;
+        }
+
         #message-box {
             position: absolute;
             bottom: 20px;
@@ -215,6 +243,8 @@
         </div>
 
         <div id="message-box" class="hud-element"></div>
+        <div id="turn-indicator">PLAYER TURN</div>
+        <div id="move-bar-container"><div id="move-bar-fill"></div></div>
 
         <div id="spell-menu">
             <div class="element-btn fire" data-el="fire">FIRE</div>

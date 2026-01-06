@@ -107,60 +107,84 @@ export class Enemy {
         return false;
     }
 
-    battleUpdate(dt, playerPos) {
-        if (!this.mesh) return;
-        
-        // AI State Machine
-        if (!this.aiState) {
-            this.aiState = { state: 'CHASE', timer: 0 };
-        }
+    resetBattleState() {
+        this.turnPhase = 0;
+        this.turnTimer = 0;
+    }
 
-        const dist = this.mesh.position.distanceTo(playerPos);
+    prepareTurn() {
+        this.turnPhase = 'MOVE';
+        this.turnTimer = 1.0; // Move for 1 second
+    }
+
+    executeTurn(dt, player) {
+        if (!this.mesh || !player.mesh) return true; // End turn if something missing
+
+        const playerPos = player.mesh.position;
         const dir = new THREE.Vector3().subVectors(playerPos, this.mesh.position).normalize();
-        dir.y = 0; // Keep horizontal
+        dir.y = 0;
+        const dist = this.mesh.position.distanceTo(playerPos);
 
-        switch (this.aiState.state) {
-            case 'CHASE':
-                if (dist < 5.0) {
-                    this.aiState.state = 'TELEGRAPH';
-                    this.aiState.timer = 1.0;
-                } else {
-                    this.mesh.position.add(dir.multiplyScalar(this.speed * dt));
-                    this.mesh.lookAt(playerPos);
-                }
-                break;
-            case 'TELEGRAPH':
-                this.aiState.timer -= dt;
+        switch (this.turnPhase) {
+            case 'MOVE':
+                // Move towards player
                 this.mesh.lookAt(playerPos);
-                // Flash warning
-                this.mesh.material.color.setHex((Date.now() % 200 < 100) ? 0xff0000 : 0x882222);
-                
-                if (this.aiState.timer <= 0) {
-                    this.aiState.state = 'ATTACK';
-                    this.aiState.timer = 0.5; // Attack duration
-                    this.mesh.material.color.setHex(0x882222);
-                    // Store attack direction
-                    this.aiState.attackDir = dir.clone();
+                if (dist > 3.0) {
+                    this.mesh.position.add(dir.multiplyScalar(this.speed * dt));
+                }
+                this.turnTimer -= dt;
+                if (this.turnTimer <= 0) {
+                    this.turnPhase = 'ATTACK_WARN';
+                    this.turnTimer = 0.5;
                 }
                 break;
-            case 'ATTACK':
-                this.aiState.timer -= dt;
-                // Dash forward
-                this.mesh.position.add(this.aiState.attackDir.clone().multiplyScalar(this.speed * 4 * dt));
-                
-                if (this.aiState.timer <= 0) {
-                    this.aiState.state = 'COOLDOWN';
-                    this.aiState.timer = 2.0;
+
+            case 'ATTACK_WARN':
+                // Flash Red
+                this.mesh.material.color.setHex((Date.now() % 100 < 50) ? 0xff0000 : 0x882222);
+                this.turnTimer -= dt;
+                if (this.turnTimer <= 0) {
+                    this.turnPhase = 'ATTACK_EXEC';
+                    this.turnTimer = 0.5;
+                    this.mesh.material.color.setHex(0xffffff); // Flash white
                 }
                 break;
-            case 'COOLDOWN':
-                this.aiState.timer -= dt;
-                // Slow strafe or idle
-                if (this.aiState.timer <= 0) {
-                    this.aiState.state = 'CHASE';
+
+            case 'ATTACK_EXEC':
+                // Dash or Hit
+                // Since player can't move, we guarantee a hit if close, or just projectile
+                this.mesh.position.add(dir.multiplyScalar(this.speed * 4 * dt));
+                
+                // Hit check
+                if (this.mesh.position.distanceTo(playerPos) < 2.0) {
+                    // Deal damage
+                    player.stats.hp -= 8; // Flat damage
+                    // Visual feedback
+                    const bounce = dir.clone().multiplyScalar(1.5);
+                    player.mesh.position.add(bounce);
+                    this.turnPhase = 'RETURN';
+                    this.turnTimer = 0.5;
+                }
+
+                this.turnTimer -= dt;
+                if (this.turnTimer <= 0) {
+                    this.turnPhase = 'RETURN';
+                    this.turnTimer = 0.5;
+                }
+                break;
+
+            case 'RETURN':
+                // Back off slightly
+                this.mesh.position.sub(dir.multiplyScalar(this.speed * dt));
+                this.mesh.material.color.setHex(0x882222);
+                this.turnTimer -= dt;
+                if (this.turnTimer <= 0) {
+                    return true; // Turn Over
                 }
                 break;
         }
+
+        return false;
     }
 
     dispose() {

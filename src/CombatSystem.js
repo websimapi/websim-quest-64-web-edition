@@ -14,6 +14,12 @@ export class CombatSystem {
         
         this.activeEnemy = null;
         this.projectiles = [];
+
+        // Turn System
+        this.turn = 'PLAYER'; // 'PLAYER' | 'ENEMY'
+        this.maxMove = 8.0;
+        this.currentMove = 8.0;
+        this.turnTimer = 0;
     }
 
     initBattle(centerPos, enemy) {
@@ -23,7 +29,7 @@ export class CombatSystem {
         
         // Lock enemy state
         enemy.state = 'BATTLE';
-        enemy.aiState = null; // Reset AI
+        enemy.resetBattleState();
 
         // Create Boundary Ring
         const geometry = new THREE.TorusGeometry(this.radius, 0.2, 8, 32);
@@ -33,6 +39,18 @@ export class CombatSystem {
         this.boundaryMesh.position.copy(centerPos);
         this.boundaryMesh.position.y += 1;
         this.scene.add(this.boundaryMesh);
+
+        this.startPlayerTurn();
+    }
+
+    startPlayerTurn() {
+        this.turn = 'PLAYER';
+        this.currentMove = this.maxMove;
+    }
+
+    startEnemyTurn() {
+        this.turn = 'ENEMY';
+        if (this.activeEnemy) this.activeEnemy.prepareTurn();
     }
 
     cleanup() {
@@ -52,6 +70,7 @@ export class CombatSystem {
 
     playerCast(element) {
         if (!this.active || this.player.castState.active) return;
+        if (this.turn !== 'PLAYER') return;
         
         const level = this.player.spirits[element];
         const spellIndex = level >= 5 ? 1 : 0;
@@ -62,6 +81,8 @@ export class CombatSystem {
         // Start Casting (Delay)
         this.player.startCasting(spellConfig, () => {
             this.executeSpell(element, spellConfig);
+            // End turn after cast completes
+            setTimeout(() => this.startEnemyTurn(), 500);
         });
     }
 
@@ -71,6 +92,7 @@ export class CombatSystem {
         if (spellConfig.type === 'heal') {
             this.player.stats.hp = Math.min(this.player.stats.maxHp, this.player.stats.hp + spellConfig.power);
             this.audioManager.playSfx('cast');
+            // Self-buffs also end turn
             return;
         }
 
@@ -94,10 +116,32 @@ export class CombatSystem {
 
     update(dt, inputs) {
         if (!this.active || !this.activeEnemy) return 'ESCAPE';
-        if (!this.activeEnemy.mesh) return 'VICTORY'; // Enemy died/cleaned up unexpectedly
+        if (!this.activeEnemy.mesh) return 'VICTORY';
+
+        // Turn Logic
+        let canMove = false;
+
+        if (this.turn === 'PLAYER') {
+            // Check Move Stamina
+            if (this.currentMove > 0 && (inputs.x !== 0 || inputs.y !== 0)) {
+                canMove = true;
+                this.currentMove -= dt * this.player.speed; // Deplete based on speed/time
+                if (this.currentMove < 0) this.currentMove = 0;
+            } else if (this.currentMove <= 0) {
+                // Stamina depleted
+                canMove = false;
+            }
+        } else if (this.turn === 'ENEMY') {
+            canMove = false;
+            // Execute Enemy Turn
+            const enemyDone = this.activeEnemy.executeTurn(dt, this.player);
+            if (enemyDone) {
+                this.startPlayerTurn();
+            }
+        }
 
         // Update Player
-        this.player.update(dt, inputs, null, this.center, this.radius);
+        this.player.update(dt, inputs, null, this.center, this.radius, canMove);
         
         // Check Escape
         const dist = this.player.mesh.position.distanceTo(this.center);
@@ -105,32 +149,9 @@ export class CombatSystem {
             return 'ESCAPE';
         }
 
-        // Update Enemy AI
-        this.activeEnemy.battleUpdate(dt, this.player.mesh.position);
-
-        // Player vs Enemy Collision (Damage)
-        if (this.activeEnemy.mesh && this.player.mesh.position.distanceTo(this.activeEnemy.mesh.position) < 1.5) {
-            if (!this.player.invulnerable) {
-                this.player.stats.hp -= 5;
-                this.audioManager.playSfx('hit');
-                // Knockback
-                const push = new THREE.Vector3().subVectors(this.player.mesh.position, this.activeEnemy.mesh.position).normalize();
-                this.player.mesh.position.add(push.multiplyScalar(3));
-                
-                // Interrupt Cast
-                if (this.player.castState.active) {
-                    this.player.stopCasting();
-                }
-
-                // Simple I-frame
-                this.player.invulnerable = true;
-                this.player.mesh.children.forEach(c => c.material.wireframe = true);
-                setTimeout(() => {
-                    this.player.invulnerable = false;
-                     if(this.player.mesh) this.player.mesh.children.forEach(c => c.material.wireframe = false);
-                }, 1000);
-            }
-        }
+        // Collision Check (Only relevant if enemy attacks physically)
+        // If enemy hits, it's handled in executeTurn usually, but we keep this for body contact
+        // We'll relax it so you don't get hit just by existing, only if enemy dashes
 
         // Update Projectiles
         for (let i = this.projectiles.length - 1; i >= 0; i--) {

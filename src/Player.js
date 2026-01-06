@@ -101,7 +101,7 @@ export class Player {
         this.stats.mp = Math.min(this.stats.maxMp, this.stats.mp + rate * dt);
     }
 
-    update(dt, inputs, world, boundaryCenter = null, boundaryRadius = 0) {
+    update(dt, inputs, world, boundaryCenter = null, boundaryRadius = 0, canMove = true) {
         this.regenMp(dt);
 
         // Casting State logic
@@ -123,7 +123,12 @@ export class Player {
             return; // Cannot move while casting
         }
 
-        this.isMoving = (inputs.x !== 0 || inputs.y !== 0);
+        // Override movement if disabled
+        if (!canMove) {
+            this.isMoving = false;
+        } else {
+            this.isMoving = (inputs.x !== 0 || inputs.y !== 0);
+        }
 
         if (this.isMoving) {
             // Calculate movement direction relative to camera
