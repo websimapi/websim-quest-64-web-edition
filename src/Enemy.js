@@ -169,7 +169,7 @@ export class Enemy {
         this.hasHit = false;
     }
 
-    executeTurn(dt, player) {
+    executeTurn(dt, player, world) {
         if (!this.mesh || !player.mesh) return true;
 
         const playerPos = player.mesh.position;
@@ -197,6 +197,7 @@ export class Enemy {
 
                 if (dist > stopDist) {
                     this.mesh.position.add(dir.multiplyScalar(this.speed * dt));
+                    if (world) this.mesh.position.y = world.getHeight(this.mesh.position.x, this.mesh.position.z) + this.yOffset;
                 }
                 
                 this.turnTimer -= dt;
@@ -243,6 +244,8 @@ export class Enemy {
                     // Melee Dash (Goblin, Wolf, Slime)
                     const dashSpeed = this.speed * 4;
                     this.mesh.position.add(dir.multiplyScalar(dashSpeed * dt));
+                    if (world) this.mesh.position.y = world.getHeight(this.mesh.position.x, this.mesh.position.z) + this.yOffset;
+
                     if (dist < 2.0) {
                         damage = (this.type === 'WOLF') ? 12 : 8;
                         hit = true;
@@ -270,6 +273,7 @@ export class Enemy {
                 // Melee units back off
                 if (this.type !== 'GOLEM' && this.type !== 'SPIRIT') {
                     this.mesh.position.sub(dir.multiplyScalar(this.speed * dt));
+                    if (world) this.mesh.position.y = world.getHeight(this.mesh.position.x, this.mesh.position.z) + this.yOffset;
                 }
                 
                 this.turnTimer -= dt;

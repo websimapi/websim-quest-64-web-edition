@@ -261,7 +261,7 @@ export class CombatSystem {
                 this.enemyTurnIndex++;
                 this.prepareNextEnemy();
             } else {
-                const done = enemy.executeTurn(dt, this.player);
+                const done = enemy.executeTurn(dt, this.player, world);
                 if (done) {
                     this.enemyTurnIndex++;
                     this.prepareNextEnemy();
