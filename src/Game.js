@@ -224,7 +224,7 @@ export class Game {
     startBattle(enemy) {
         this.gameState = 'BATTLE';
         this.showMessage("BATTLE START!");
-        this.combatSystem.initBattle(this.player.mesh.position, enemy);
+        this.combatSystem.initBattle(this.player.mesh.position, enemy, this.world.enemies);
     }
 
     endBattle() {

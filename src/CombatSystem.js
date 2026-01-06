@@ -12,24 +12,33 @@ export class CombatSystem {
         this.radius = 15;
         this.center = new THREE.Vector3();
         
-        this.activeEnemy = null;
+        this.activeEnemies = [];
         this.projectiles = [];
 
         // Turn System
         this.turn = 'PLAYER'; // 'PLAYER' | 'ENEMY'
+        this.enemyTurnIndex = 0;
         this.maxMove = 8.0;
         this.currentMove = 8.0;
         this.turnTimer = 0;
     }
 
-    initBattle(centerPos, enemy) {
+    initBattle(centerPos, primaryEnemy, allEnemies) {
         this.active = true;
         this.center.copy(centerPos);
-        this.activeEnemy = enemy;
         
-        // Lock enemy state
-        enemy.state = 'BATTLE';
-        enemy.resetBattleState();
+        // Find all enemies in radius + the primary one
+        this.activeEnemies = allEnemies.filter(e => {
+            if (e.hp <= 0) return false;
+            if (e === primaryEnemy) return true;
+            return e.mesh.position.distanceTo(centerPos) <= this.radius;
+        });
+        
+        // Lock enemy states
+        this.activeEnemies.forEach(e => {
+            e.state = 'BATTLE';
+            e.resetBattleState();
+        });
 
         // Create Boundary Ring
         const geometry = new THREE.TorusGeometry(this.radius, 0.2, 8, 32);
@@ -50,7 +59,21 @@ export class CombatSystem {
 
     startEnemyTurn() {
         this.turn = 'ENEMY';
-        if (this.activeEnemy) this.activeEnemy.prepareTurn();
+        this.enemyTurnIndex = 0;
+        this.prepareNextEnemy();
+    }
+
+    prepareNextEnemy() {
+        while(this.enemyTurnIndex < this.activeEnemies.length) {
+            const enemy = this.activeEnemies[this.enemyTurnIndex];
+            if(enemy && enemy.mesh && enemy.hp > 0) {
+                enemy.prepareTurn();
+                return;
+            }
+            this.enemyTurnIndex++;
+        }
+        // No more enemies to act
+        this.startPlayerTurn();
     }
 
     cleanup() {
@@ -59,10 +82,10 @@ export class CombatSystem {
             this.scene.remove(this.boundaryMesh);
             this.boundaryMesh = null;
         }
-        if (this.activeEnemy && this.activeEnemy.hp > 0) {
-            this.activeEnemy.state = 'ROAM'; // If escaped
-        }
-        this.activeEnemy = null;
+        this.activeEnemies.forEach(e => {
+            if (e.hp > 0) e.state = 'ROAM';
+        });
+        this.activeEnemies = [];
 
         this.projectiles.forEach(p => p.dispose());
         this.projectiles = [];
@@ -114,8 +137,11 @@ export class CombatSystem {
     }
 
     update(dt, inputs) {
-        if (!this.active || !this.activeEnemy) return 'ESCAPE';
-        if (!this.activeEnemy.mesh) return 'VICTORY';
+        if (!this.active) return 'ESCAPE';
+
+        // Check Victory
+        const liveEnemies = this.activeEnemies.filter(e => e.mesh && e.hp > 0);
+        if (liveEnemies.length === 0) return 'VICTORY';
 
         // Turn Logic
         let canMove = false;
@@ -132,10 +158,18 @@ export class CombatSystem {
             }
         } else if (this.turn === 'ENEMY') {
             canMove = false;
-            // Execute Enemy Turn
-            const enemyDone = this.activeEnemy.executeTurn(dt, this.player);
-            if (enemyDone) {
-                this.startPlayerTurn();
+            const enemy = this.activeEnemies[this.enemyTurnIndex];
+            
+            if (!enemy || !enemy.mesh || enemy.hp <= 0) {
+                // Invalid or dead, next
+                this.enemyTurnIndex++;
+                this.prepareNextEnemy();
+            } else {
+                const done = enemy.executeTurn(dt, this.player);
+                if (done) {
+                    this.enemyTurnIndex++;
+                    this.prepareNextEnemy();
+                }
             }
         }
 
@@ -148,19 +182,15 @@ export class CombatSystem {
             return 'ESCAPE';
         }
 
-        // Collision Check (Only relevant if enemy attacks physically)
-        // If enemy hits, it's handled in executeTurn usually, but we keep this for body contact
-        // We'll relax it so you don't get hit just by existing, only if enemy dashes
-
         // Update Projectiles
         for (let i = this.projectiles.length - 1; i >= 0; i--) {
             const p = this.projectiles[i];
-            const result = p.update(dt, [this.activeEnemy]);
+            const result = p.update(dt, this.activeEnemies.filter(e => e.mesh && e.hp > 0));
             
             if (result.result === 'HIT') {
                 this.audioManager.playSfx('hit');
-                const dead = result.target.takeDamage(result.damage);
-                if (dead) return 'VICTORY';
+                result.target.takeDamage(result.damage);
+                // Don't return VICTORY here, let next loop catch it so we process things orderly
                 
                 p.dispose();
                 this.projectiles.splice(i, 1);
