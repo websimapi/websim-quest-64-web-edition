@@ -38,6 +38,8 @@ export class Enemy {
     }
 
     update(dt, playerPos, world) {
+        if (!this.mesh) return;
+
         if (this.state === 'BATTLE') {
             // Battle logic handled by CombatSystem primarily, 
             // but we can animate idling here

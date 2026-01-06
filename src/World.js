@@ -116,6 +116,8 @@ export class World {
     }
 
     update(dt, playerPos) {
+        // Remove dead enemies
+        this.enemies = this.enemies.filter(e => e.mesh);
         this.enemies.forEach(e => e.update(dt, playerPos, this));
     }
 
