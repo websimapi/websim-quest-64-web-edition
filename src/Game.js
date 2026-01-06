@@ -248,11 +248,11 @@ export class Game {
             }
 
         } else if (this.gameState === 'BATTLE') {
-            const battleResult = this.combatSystem.update(dt, this.inputs, this.world);
-            if (battleResult === 'VICTORY') {
-                this.handleVictory();
+            const result = this.combatSystem.update(dt, this.inputs, this.world);
+            if (result.status === 'VICTORY') {
+                this.handleVictory(result.xp);
                 this.endBattle();
-            } else if (battleResult === 'ESCAPE') {
+            } else if (result.status === 'ESCAPE') {
                 this.showMessage("ESCAPED!", 2000);
                 this.endBattle();
             }
@@ -274,9 +274,9 @@ export class Game {
         this.combatSystem.cleanup();
     }
     
-    handleVictory() {
-        const leveledUp = this.player.gainXp(20);
-        this.showMessage(leveledUp ? "LEVEL UP!" : "VICTORY!", 3000);
+    handleVictory(xp = 20) {
+        const leveledUp = this.player.gainXp(xp);
+        this.showMessage(leveledUp ? "LEVEL UP!" : `VICTORY! +${xp} XP`, 3000);
         
         if (leveledUp) {
             this.showLevelUpMenu();
@@ -285,6 +285,7 @@ export class Game {
 
     showLevelUpMenu() {
         const overlay = document.getElementById('levelup-overlay');
+        overlay.querySelector('p').innerText = "Grant 1 Spirit Point to an element:";
         overlay.style.display = 'flex';
         
         const close = () => {

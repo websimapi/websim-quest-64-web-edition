@@ -19,6 +19,8 @@ export class Enemy {
         switch (type) {
             case 'SLIME':
                 this.hp = 20; this.maxHp = 20; this.speed = 2;
+                this.element = 'water';
+                this.xpValue = 15;
                 geo = new THREE.SphereGeometry(0.6, 8, 6);
                 geo.scale(1, 0.6, 1);
                 color = 0x44ff44;
@@ -26,12 +28,16 @@ export class Enemy {
                 break;
             case 'WOLF':
                 this.hp = 25; this.maxHp = 25; this.speed = 6;
+                this.element = 'wind';
+                this.xpValue = 30;
                 geo = new THREE.BoxGeometry(0.5, 0.5, 1.0);
                 color = 0x555555;
                 this.yOffset = 0.5;
                 break;
             case 'GOLEM':
                 this.hp = 80; this.maxHp = 80; this.speed = 1.5;
+                this.element = 'earth';
+                this.xpValue = 80;
                 geo = new THREE.CylinderGeometry(0.6, 0.6, 1.2, 6);
                 color = 0x6d4c41;
                 this.yOffset = 0.6;
@@ -39,12 +45,16 @@ export class Enemy {
                 break;
             case 'SPIRIT':
                 this.hp = 15; this.maxHp = 15; this.speed = 4;
+                this.element = 'fire';
+                this.xpValue = 25;
                 geo = new THREE.OctahedronGeometry(0.5);
                 color = 0x00ffff;
                 this.yOffset = 1.5; // Flying
                 break;
             default: // GOBLIN
                 this.hp = 30; this.maxHp = 30; this.speed = 3;
+                this.element = 'earth';
+                this.xpValue = 20;
                 geo = new THREE.DodecahedronGeometry(0.7);
                 color = 0x882222;
                 this.yOffset = 0.7;
@@ -263,7 +273,7 @@ export class Enemy {
                 }
 
                 if (hit && !this.hasHit) {
-                    player.stats.hp -= damage;
+                    player.takeDamage(damage, this.element);
                     this.hasHit = true; // Ensure one hit per turn
                 }
 

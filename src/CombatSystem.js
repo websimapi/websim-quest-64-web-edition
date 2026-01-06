@@ -271,11 +271,14 @@ export class CombatSystem {
     }
 
     update(dt, inputs, world) {
-        if (!this.active) return 'ESCAPE';
+        if (!this.active) return { status: 'ESCAPE' };
 
         // Check Victory
         const liveEnemies = this.activeEnemies.filter(e => e.mesh && e.hp > 0);
-        if (liveEnemies.length === 0) return 'VICTORY';
+        if (liveEnemies.length === 0) {
+            const xp = this.activeEnemies.reduce((sum, e) => sum + (e.xpValue || 10), 0);
+            return { status: 'VICTORY', xp: xp };
+        }
 
         // Turn Logic
         let canMove = false;
@@ -313,7 +316,7 @@ export class CombatSystem {
         // If it is ENEMY turn, we wait for the enemy to finish their attack/return animation
         // The prepareNextEnemy function will handle switching back to PLAYER turn if out of bounds.
         if (dist > this.radius && this.turn === 'PLAYER') {
-            return 'ESCAPE';
+            return { status: 'ESCAPE' };
         }
 
         // Update Projectiles
@@ -340,6 +343,6 @@ export class CombatSystem {
             }
         }
         
-        return 'CONTINUE';
+        return { status: 'CONTINUE' };
     }
 }

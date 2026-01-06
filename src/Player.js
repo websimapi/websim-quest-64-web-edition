@@ -185,15 +185,31 @@ export class Player {
         this.stats.mp = Math.min(this.stats.mp, this.stats.maxMp);
     }
 
+    takeDamage(amount, element) {
+        // Resistance: Specific Element Spirit Level reduces damage from that element
+        // Formula: Diminishing returns (100% / (100% + Spirit*5%))
+        if (element && this.spirits[element]) {
+            const factor = 1.0 / (1.0 + (this.spirits[element] * 0.05));
+            amount *= factor;
+        }
+
+        // Earth provides flat physical/general mitigation (Defense)
+        const defense = this.spirits.earth * 0.25;
+        amount = Math.max(1, amount - defense);
+
+        this.stats.hp -= Math.floor(amount);
+    }
+
     gainXp(amount) {
         this.xp += amount;
-        if (this.xp >= this.nextLevelXp) {
+        let leveled = false;
+        while (this.xp >= this.nextLevelXp) {
             this.xp -= this.nextLevelXp;
             this.level++;
             this.nextLevelXp = Math.floor(this.nextLevelXp * 1.5);
-            return true; // Level Up
+            leveled = true;
         }
-        return false;
+        return leveled;
     }
 
     regenMp(dt) {
