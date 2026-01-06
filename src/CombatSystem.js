@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import * as THREE from 'three';
 import { SpellProjectile, getSpellConfig } from './Spells.js';
 
 export class CombatSystem {
