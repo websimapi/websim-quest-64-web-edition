@@ -377,6 +377,9 @@ export class Game {
     }
     
     handleVictory(xp = 20) {
+        // No XP during title screen (AI mode)
+        if (this.player.aiControlled) return;
+
         const leveledUp = this.player.gainXp(xp);
         this.uiManager.showMessage(leveledUp ? "LEVEL UP!" : `VICTORY! +${xp} XP`, 3000);
         
