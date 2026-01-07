@@ -10,17 +10,17 @@
         /* Toolbelt Styles */
         #toolbelt-container {
             position: absolute;
-            bottom: 20px;
-            left: 20px;
+            bottom: 15px;
+            left: 15px;
             display: flex;
-            gap: 10px;
+            gap: 8px;
             pointer-events: auto;
             z-index: 50;
         }
 
         .toolbelt-slot {
-            width: 50px;
-            height: 50px;
+            width: 48px;
+            height: 48px;
             border: 2px solid white;
             background: rgba(0,0,0,0.7);
             border-radius: 8px;
@@ -179,24 +179,24 @@
         /* Spell Controls (New) */
         #spell-controls {
             position: absolute;
-            bottom: 30px;
-            right: 30px;
-            width: 200px;
-            height: 200px;
+            bottom: 15px;
+            right: 15px;
+            width: 150px;
+            height: 150px;
             pointer-events: none;
         }
 
         .spell-btn {
             position: absolute;
             border-radius: 50%;
-            border: 3px solid white;
+            border: 2px solid white;
             color: white;
             display: flex;
             align-items: center;
             justify-content: center;
             font-size: 10px;
             cursor: pointer;
-            box-shadow: 0 4px 0 #000;
+            box-shadow: 0 3px 0 #000;
             pointer-events: auto;
             font-weight: bold;
             text-shadow: 1px 1px 0 #000;
@@ -204,26 +204,27 @@
             background: #333;
         }
         .spell-btn:active {
-            transform: translateY(4px);
+            transform: translateY(3px);
             box-shadow: 0 0 0 #000;
         }
         .spell-btn.main {
-            width: 90px;
-            height: 90px;
+            width: 80px;
+            height: 80px;
             bottom: 0;
             right: 0;
-            font-size: 16px;
+            font-size: 14px;
             z-index: 10;
+            border-width: 3px;
         }
         .spell-btn.sub {
-            width: 55px;
-            height: 55px;
-            font-size: 10px;
+            width: 48px;
+            height: 48px;
+            font-size: 9px;
             z-index: 5;
         }
-        #spell-sub-1 { bottom: 10px; right: 110px; }
-        #spell-sub-2 { bottom: 80px; right: 80px; }
-        #spell-sub-3 { bottom: 110px; right: 10px; }
+        #spell-sub-1 { bottom: 5px; right: 85px; }
+        #spell-sub-2 { bottom: 65px; right: 65px; }
+        #spell-sub-3 { bottom: 85px; right: 5px; }
 
         /* Legacy Classes for Level Up Menu */
         .element-btn {
