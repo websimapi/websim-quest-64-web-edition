@@ -304,9 +304,8 @@ export class Game {
         }
 
         // Game State Logic
-        this.world.update(dt, this.player.mesh.position);
 
-        // Update Roaming Projectiles (Moved out so they don't freeze during battle transition)
+        // Update Roaming Projectiles (Always update to prevent freezing on state change)
         for (let i = this.roamingProjectiles.length - 1; i >= 0; i--) {
             const p = this.roamingProjectiles[i];
             const result = p.update(dt, this.world.enemies.filter(e => e.hp > 0));
@@ -327,7 +326,7 @@ export class Game {
                 this.roamingProjectiles.splice(i, 1);
 
                 // Trigger Battle with first hit enemy (only if not already in battle)
-                if (this.gameState === 'ROAMING' && hitEnemies.length > 0 && hitEnemies[0].hp > 0) {
+                if (this.gameState !== 'BATTLE' && hitEnemies.length > 0 && hitEnemies[0].hp > 0) {
                     this.startBattle(hitEnemies[0]);
                 }
             }
@@ -339,6 +338,7 @@ export class Game {
 
         if (this.gameState === 'ROAMING') {
             this.player.update(dt, transformedInputs, this.world);
+            this.world.update(dt, this.player.mesh.position);
             
             // Check for contact encounters
             for (let enemy of this.world.enemies) {
