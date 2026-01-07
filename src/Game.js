@@ -471,17 +471,12 @@ export class Game {
         const index = this.world.items.indexOf(item);
         if (index > -1) this.world.items.splice(index, 1);
         
-        // Apply effect
+        // Add to inventory
         const config = item.config;
+        this.player.stats.addItem(item.type, 1);
+        
         this.uiManager.showMessage(`Got ${config.name}!`, 1500);
         this.audioManager.playSfx('cast'); // Reuse cast sound as pickup chime
-
-        if (config.stat === 'hp' || config.stat === 'all') {
-            this.player.stats.hp = Math.min(this.player.stats.maxHp, this.player.stats.hp + config.value);
-        }
-        if (config.stat === 'mp' || config.stat === 'all') {
-             this.player.stats.mp = Math.min(this.player.stats.maxMp, this.player.stats.mp + config.value);
-        }
     }
 
     // removed showLevelUpMenu() {} – moved to UIManager

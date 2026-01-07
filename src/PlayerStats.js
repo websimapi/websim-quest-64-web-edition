@@ -17,6 +17,17 @@ export class PlayerStats {
         this.mp = 24;
         this.maxMp = 24;
 
+        // Inventory System
+        this.inventory = {
+            'HP_POTION': 0,
+            'MP_POTION': 0,
+            'ELIXIR': 0,
+            'HERB': 0
+        };
+
+        // Toolbelt (3 Slots)
+        this.toolbelt = ['HP_POTION', 'MP_POTION', null];
+
         this.recalcStats();
     }
 
@@ -60,5 +71,34 @@ export class PlayerStats {
         // Base regen + water bonus
         const rate = 0.15 + (this.spirits.water * 0.08);
         this.mp = Math.min(this.maxMp, this.mp + rate * dt);
+    }
+
+    addItem(type, amount = 1) {
+        if (this.inventory[type] !== undefined) {
+            this.inventory[type] += amount;
+            // Auto-equip to empty slot if available
+            if (this.inventory[type] === amount) { // Was 0
+                 const emptySlot = this.toolbelt.indexOf(null);
+                 if (emptySlot !== -1 && !this.toolbelt.includes(type)) {
+                     this.toolbelt[emptySlot] = type;
+                 }
+            }
+            return true;
+        }
+        return false;
+    }
+
+    hasItem(type) {
+        return this.inventory[type] && this.inventory[type] > 0;
+    }
+
+    consumeItem(type) {
+        if (this.hasItem(type)) {
+            this.inventory[type]--;
+            // If run out, we keep it in toolbelt (count 0) or remove? 
+            // Usually keeping it is better so you can pick more up and it goes back there.
+            return true;
+        }
+        return false;
     }
 }

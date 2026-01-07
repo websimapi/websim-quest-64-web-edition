@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { PlayerStats } from './PlayerStats.js';
 import { PlayerModel } from './PlayerModel.js';
+import { getItemConfig } from './Item.js';
 
 export class Player {
     constructor(scene, audioManager) {
@@ -211,5 +212,42 @@ export class Player {
     // Legacy method for roaming instant cast (if needed)
     castSpell(element) {
          this.audioManager.playSfx('cast');
+    }
+
+    useToolbeltItem(slotIndex) {
+        if (slotIndex < 0 || slotIndex >= 3) return false;
+        
+        const type = this.stats.toolbelt[slotIndex];
+        if (!type) return false;
+
+        if (this.stats.hasItem(type)) {
+            const config = getItemConfig(type);
+            
+            // Apply Effects
+            let used = false;
+            
+            // Check if needed? Nah, just use it.
+            if (config.stat === 'hp' || config.stat === 'all') {
+                if (this.stats.hp < this.stats.maxHp || config.stat === 'all') {
+                    this.stats.hp = Math.min(this.stats.maxHp, this.stats.hp + config.value);
+                    used = true;
+                }
+            }
+            if (config.stat === 'mp' || config.stat === 'all') {
+                 if (this.stats.mp < this.stats.maxMp || config.stat === 'all') {
+                    this.stats.mp = Math.min(this.stats.maxMp, this.stats.mp + config.value);
+                    used = true;
+                 }
+            }
+
+            if (used) {
+                this.stats.consumeItem(type);
+                this.audioManager.playSfx('cast'); // Use cast sound for potion
+                return { success: true, name: config.name };
+            } else {
+                return { success: false, msg: "Full Health/Mana" };
+            }
+        }
+        return { success: false, msg: "Empty" };
     }
 }

@@ -1,5 +1,48 @@
 import * as THREE from 'three';
 
+export function getItemConfig(type) {
+    switch (type) {
+        case 'HP_POTION':
+            return { 
+                name: 'Health Potion', 
+                color: 0xff3333, 
+                cssColor: '#ff3333',
+                value: 20, 
+                stat: 'hp',
+                desc: "Restores 20 HP"
+            };
+        case 'MP_POTION':
+            return { 
+                name: 'Mana Potion', 
+                color: 0x3333ff, 
+                cssColor: '#3333ff',
+                value: 15, 
+                stat: 'mp',
+                desc: "Restores 15 MP"
+            };
+        case 'ELIXIR':
+            return { 
+                name: 'Elixir', 
+                color: 0xffd700, 
+                cssColor: '#ffd700',
+                value: 50, 
+                stat: 'all',
+                desc: "Fully Restores Status"
+            };
+        case 'HERB':
+            return {
+                name: 'Medicinal Herb',
+                color: 0x4caf50,
+                cssColor: '#4caf50',
+                value: 10, 
+                stat: 'hp',
+                desc: "Restores 10 HP"
+            };
+        default:
+            return { name: 'Unknown', color: 0xffffff, cssColor: '#ffffff', value: 0 };
+    }
+}
+
 export class Item {
     constructor(scene, type, position) {
         this.scene = scene;
@@ -21,42 +64,7 @@ export class Item {
     }
 
     getConfig(type) {
-        switch (type) {
-            case 'HP_POTION':
-                return { 
-                    name: 'Health Potion', 
-                    color: 0xff3333, 
-                    value: 20, 
-                    stat: 'hp',
-                    desc: "Restores 20 HP"
-                };
-            case 'MP_POTION':
-                return { 
-                    name: 'Mana Potion', 
-                    color: 0x3333ff, 
-                    value: 15, 
-                    stat: 'mp',
-                    desc: "Restores 15 MP"
-                };
-            case 'ELIXIR':
-                return { 
-                    name: 'Elixir', 
-                    color: 0xffd700, 
-                    value: 50, 
-                    stat: 'all',
-                    desc: "Fully Restores Status"
-                };
-            case 'HERB':
-                return {
-                    name: 'Medicinal Herb',
-                    color: 0x4caf50,
-                    value: 10,
-                    stat: 'hp',
-                    desc: "Restores 10 HP"
-                };
-            default:
-                return { name: 'Unknown', color: 0xffffff, value: 0 };
-        }
+        return getItemConfig(type);
     }
 
     createMesh() {
