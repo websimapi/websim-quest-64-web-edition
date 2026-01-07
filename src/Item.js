@@ -103,7 +103,8 @@ export class Item {
             color: this.config.color, 
             transparent: true, 
             opacity: 0.4, 
-            side: THREE.DoubleSide 
+            side: THREE.DoubleSide,
+            depthWrite: false
         });
         const halo = new THREE.Mesh(haloGeo, haloMat);
         halo.rotation.x = 0; // Billboarded usually, but here just facing camera? 

@@ -128,7 +128,7 @@ export class CombatSystem {
         
         geometry.computeVertexNormals();
 
-        const material = new THREE.MeshBasicMaterial({ color: 0xffaa00, transparent: true, opacity: 0.6 });
+        const material = new THREE.MeshBasicMaterial({ color: 0xffaa00, transparent: true, opacity: 0.6, depthWrite: false });
         this.boundaryMesh = new THREE.Mesh(geometry, material);
         this.scene.add(this.boundaryMesh);
 

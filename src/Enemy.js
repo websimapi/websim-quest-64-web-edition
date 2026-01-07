@@ -171,7 +171,13 @@ export class Enemy {
 
         // Hitbox for easier selection
         const hitGeo = new THREE.CylinderGeometry(1.5, 1.5, 3, 8);
-        const hitMat = new THREE.MeshBasicMaterial({ visible: true, transparent: true, opacity: 0, side: THREE.DoubleSide });
+        const hitMat = new THREE.MeshBasicMaterial({ 
+            visible: true, 
+            transparent: true, 
+            opacity: 0, 
+            side: THREE.DoubleSide,
+            depthWrite: false
+        });
         const hitbox = new THREE.Mesh(hitGeo, hitMat);
         hitbox.userData = { isHitbox: true };
         this.mesh.add(hitbox);

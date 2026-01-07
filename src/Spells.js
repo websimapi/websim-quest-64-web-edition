@@ -175,12 +175,12 @@ export class SpellProjectile {
                 geo = new THREE.OctahedronGeometry(config.scale); // Crystal
                 geo.scale(0.5, 0.5, 2); // Long shard
             }
-            mat = new THREE.MeshBasicMaterial({ color: color, transparent: true, opacity: 0.8 });
+            mat = new THREE.MeshBasicMaterial({ color: color, transparent: true, opacity: 0.8, depthWrite: false });
         }
         else { // Wind
              if (config.name === 'Tornado') {
                  geo = new THREE.CylinderGeometry(config.scale, config.scale*0.1, config.scale*3, 8, 1, true);
-                 mat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.4, side: THREE.DoubleSide });
+                 mat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.4, side: THREE.DoubleSide, depthWrite: false });
              } else {
                  geo = new THREE.TorusGeometry(config.scale, config.scale*0.2, 4, 12); // Disc
                  mat = new THREE.MeshBasicMaterial({ color: 0xffffaa });
@@ -226,7 +226,7 @@ export class SpellProjectile {
             // Add AoE indicator
             const ring = new THREE.Mesh(
                 new THREE.RingGeometry(0.1, config.scale * 1.5, 16),
-                new THREE.MeshBasicMaterial({ color: config.color, side: THREE.DoubleSide, transparent: true, opacity: 0.5 })
+                new THREE.MeshBasicMaterial({ color: config.color, side: THREE.DoubleSide, transparent: true, opacity: 0.5, depthWrite: false })
             );
             ring.rotation.x = -Math.PI/2;
             ring.position.copy(spawnPos);
