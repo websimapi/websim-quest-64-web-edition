@@ -29,7 +29,7 @@ export class WaterSystem {
                 uBaseColor: { value: new THREE.Color(0x001e0f) }, // Deep Dark Teal
                 uShallowColor: { value: new THREE.Color(0x40a4df) }, // Bright Light Blue
                 uFoamColor: { value: new THREE.Color(0xffffff) },
-                uSunPosition: { value: new THREE.Vector3(100, 200, 100).normalize() },
+                uSunPosition: { value: new THREE.Vector3(150, 300, 100).normalize() },
                 uHeightMap: { value: this.heightMap },
                 uWorldSize: { value: size },
                 uWaterLevel: { value: this.waterLevel },
@@ -140,8 +140,8 @@ export class WaterSystem {
                 uniform sampler2D uHeightMap;
                 uniform float uWorldSize;
                 uniform float uWaterLevel;
-                
                 uniform vec3 cameraPosition;
+                
                 varying float vWaveHeight;
                 varying vec3 vWorldPos;
                 varying vec3 vNormal;
@@ -212,7 +212,6 @@ export class WaterSystem {
                     vec3 waterColor = mix(uShallowColor, deepColor, depthFactor);
                     
                     // 4. Lighting
-                    // Fix: Use World Space View Direction because vNormal is in World Space
                     vec3 viewDir = normalize(cameraPosition - vWorldPos);
                     vec3 normal = normalize(vNormal);
                     
@@ -220,7 +219,6 @@ export class WaterSystem {
                     float roughness = 0.3 + 0.7 * vOceanFactor;
                     float n1 = noise(vWorldPos.xz * 0.5 + uTime * 0.5);
                     float n2 = noise(vWorldPos.xz * 1.0 - uTime * 0.8);
-                    
                     normal.x += (n1 - 0.5) * 0.2 * roughness;
                     normal.z += (n2 - 0.5) * 0.2 * roughness;
                     normal = normalize(normal);
@@ -228,9 +226,7 @@ export class WaterSystem {
                     vec3 sunDir = normalize(uSunPosition);
                     vec3 halfVector = normalize(sunDir + viewDir);
                     float NdotH = max(0.0, dot(normal, halfVector));
-                    
-                    // Adjusted specular for better wave visibility
-                    float specular = pow(NdotH, 80.0) * 2.0; 
+                    float specular = pow(NdotH, 120.0) * 1.5; 
                     
                     float fresnel = pow(1.0 - max(0.0, dot(viewDir, normal)), 4.0);
                     fresnel = clamp(fresnel, 0.0, 1.0);
