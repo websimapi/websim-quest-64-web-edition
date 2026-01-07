@@ -30,7 +30,6 @@ export class WaterSystem {
                 uShallowColor: { value: new THREE.Color(0x40a4df) }, // Bright Light Blue
                 uFoamColor: { value: new THREE.Color(0xffffff) },
                 uSunPosition: { value: new THREE.Vector3(100, 200, 100).normalize() },
-                uTideDirection: { value: new THREE.Vector2(1, 0) },
                 uHeightMap: { value: this.heightMap },
                 uWorldSize: { value: size },
                 uWaterLevel: { value: this.waterLevel },
@@ -47,8 +46,7 @@ export class WaterSystem {
                 varying vec3 vNormal;
                 varying vec3 vViewPosition;
                 varying vec2 vUv;
-
-                uniform vec2 uTideDirection;
+                varying float vOceanFactor; // 0 = Inland, 1 = Open Ocean
 
                 // Gerstner Wave
                 vec3 gerstnerWave(vec3 p, float steepness, float wavelength, float speed, vec2 dir) {
@@ -63,77 +61,71 @@ export class WaterSystem {
                         dir.y * (a * cos(f))
                     );
                 }
-                
-                vec2 rotate(vec2 v, float a) {
-                    float s = sin(a);
-                    float c = cos(a);
-                    return vec2(c * v.x - s * v.y, s * v.x + c * v.y);
-                }
-
-                vec3 getDisplacement(vec3 p) {
-                    float dist = length(p.xz);
-                    
-                    // Ocean Factor: 0.0 near center (Inland), 1.0 far out (Ocean)
-                    float oceanFactor = smoothstep(400.0, 900.0, dist);
-                    
-                    vec3 disp = vec3(0.0);
-                    
-                    // 1. Ocean Swell (Main Tide) - Only strong in ocean
-                    // Use dynamic tide direction
-                    disp += gerstnerWave(p, 0.35 * oceanFactor, 90.0, 0.8, uTideDirection);
-                    
-                    // 2. Crossing Ocean Chop
-                    vec2 chopDir = rotate(uTideDirection, 0.7);
-                    disp += gerstnerWave(p, 0.25 * oceanFactor, 45.0, 1.0, chopDir);
-                    
-                    // 3. Inland/Local Ripples (Always present but smaller)
-                    // Chaotic direction for "pond" feel
-                    vec2 rippleDir = normalize(vec2(sin(p.x * 0.05), cos(p.z * 0.05)));
-                    float pondDamp = 1.0 - (oceanFactor * 0.5); // Slightly dampen in high seas to prevent noise
-                    disp += gerstnerWave(p, 0.08 * pondDamp, 12.0, 1.5, rippleDir);
-                    
-                    // 4. Micro Detail
-                    vec2 microDir = rotate(uTideDirection, -0.5);
-                    disp += gerstnerWave(p, 0.03, 5.0, 2.5, microDir);
-                    
-                    return disp;
-                }
 
                 void main() {
                     vec3 gridPos = position;
                     vec4 worldPos = modelMatrix * vec4(gridPos, 1.0);
                     vUv = worldPos.xz;
 
+                    // Calculate Ocean vs Inland Factor based on distance from center
+                    // Island roughly radius 950.
+                    float dist = length(worldPos.xz);
+                    vOceanFactor = smoothstep(600.0, 950.0, dist);
+
                     vec3 p = worldPos.xyz;
+                    vec3 displacement = vec3(0.0);
                     
-                    vec3 displacement = getDisplacement(p);
+                    // --- OCEAN WAVES (Large, Directional) ---
+                    // Only apply far from center
+                    if (vOceanFactor > 0.01) {
+                         // Tide direction: Roughly global for now, but feels consistent
+                         vec2 tideDir = normalize(vec2(1.0, 0.4));
+                         // Crossing swell
+                         vec2 crossDir = normalize(vec2(0.6, 0.8));
+                         
+                         displacement += gerstnerWave(p, 0.22 * vOceanFactor, 90.0, 0.7, tideDir);
+                         displacement += gerstnerWave(p, 0.15 * vOceanFactor, 45.0, 0.9, crossDir);
+                    }
+                    
+                    // --- INLAND/MICRO RIPPLES (Everywhere, but dominant inland) ---
+                    // Ponds/Rivers have small, chaotic ripples
+                    displacement += gerstnerWave(p, 0.04, 8.0, 1.5, normalize(vec2(0.5, 0.2)));
+                    displacement += gerstnerWave(p, 0.03, 4.0, 2.0, normalize(vec2(-0.3, 0.6)));
                     
                     vec3 finalPos = p + displacement;
                     vWaveHeight = finalPos.y - p.y;
                     
-                    // Analytical Normal Approximation via Finite Difference
-                    float delta = 0.5; 
+                    // Normal Calculation (Analytical-ish via finite diff of wave function)
+                    // We re-calculate displacement for offsets to get normal
+                    float delta = 0.5;
                     vec3 pX = p + vec3(delta, 0.0, 0.0);
-                    vec3 finalX = pX + getDisplacement(pX);
+                    vec3 dX = vec3(0.0);
+                    if (vOceanFactor > 0.01) {
+                        dX += gerstnerWave(pX, 0.22 * vOceanFactor, 90.0, 0.7, normalize(vec2(1.0, 0.4)));
+                        dX += gerstnerWave(pX, 0.15 * vOceanFactor, 45.0, 0.9, normalize(vec2(0.6, 0.8)));
+                    }
+                    dX += gerstnerWave(pX, 0.04, 8.0, 1.5, normalize(vec2(0.5, 0.2)));
+                    dX += gerstnerWave(pX, 0.03, 4.0, 2.0, normalize(vec2(-0.3, 0.6)));
+                    vec3 finalX = pX + dX;
                     
                     vec3 pZ = p + vec3(0.0, 0.0, delta);
-                    vec3 finalZ = pZ + getDisplacement(pZ);
+                    vec3 dZ = vec3(0.0);
+                    if (vOceanFactor > 0.01) {
+                        dZ += gerstnerWave(pZ, 0.22 * vOceanFactor, 90.0, 0.7, normalize(vec2(1.0, 0.4)));
+                        dZ += gerstnerWave(pZ, 0.15 * vOceanFactor, 45.0, 0.9, normalize(vec2(0.6, 0.8)));
+                    }
+                    dZ += gerstnerWave(pZ, 0.04, 8.0, 1.5, normalize(vec2(0.5, 0.2)));
+                    dZ += gerstnerWave(pZ, 0.03, 4.0, 2.0, normalize(vec2(-0.3, 0.6)));
+                    vec3 finalZ = pZ + dZ;
                     
                     vec3 tangentX = finalX - finalPos;
-                    vec3 tangentZ = finalZ - finalPos;
-                    
-                    vec3 tangentX = finalX - finalPos;
-                    vec3 tangentZ = finalZ - finalPos; // order matters for cross product
-                    // X cross Z is Up
+                    vec3 tangentZ = finalZ - finalPos; 
                     vNormal = normalize(cross(tangentZ, tangentX));
 
                     vWorldPos = finalPos;
-                    
                     vec4 mvPosition = viewMatrix * vec4(finalPos, 1.0);
                     gl_Position = projectionMatrix * mvPosition;
-                    
                     vViewPosition = -mvPosition.xyz;
-                    
                     #include <fog_vertex>
                 }
             `,
@@ -154,6 +146,7 @@ export class WaterSystem {
                 varying vec3 vNormal;
                 varying vec3 vViewPosition;
                 varying vec2 vUv;
+                varying float vOceanFactor;
 
                 // Simple Hash Noise
                 float hash(vec2 p) {
@@ -183,60 +176,57 @@ export class WaterSystem {
                     // 1. Calculate Depth
                     vec2 texUv = (vWorldPos.xz / uWorldSize) + 0.5;
                     float terrainHeight = texture2D(uHeightMap, texUv).r;
-                    
-                    // Depth relative to flat water level, adjusted by wave
                     float waterDepth = uWaterLevel - terrainHeight; 
                     float visualDepth = vWorldPos.y - terrainHeight; 
-                    
-                    // Safety clamp
                     visualDepth = max(0.0, visualDepth);
 
                     // 2. Shoreline Simulation
-                    // Run-up wave moves towards shore (assuming deep -> shallow)
                     float shoreTime = uTime * 0.8;
                     float shoreWave = sin(shoreTime + waterDepth * 1.5); 
                     
-                    // Base foam at very shallow depth
                     float foamMask = smoothstep(0.4, 0.0, visualDepth);
                     
-                    // Retreating bubbles: Show when shoreWave is "low" (receding)
+                    // Retreating bubbles
                     float bubbleNoise = fbm(vWorldPos.xz * 2.0);
-                    
-                    float retreatFactor = smoothstep(0.2, -0.8, shoreWave); // Active in trough
-                    float shallowArea = smoothstep(2.5, 0.0, waterDepth); // Only near shore
-                    
+                    float retreatFactor = smoothstep(0.2, -0.8, shoreWave);
+                    float shallowArea = smoothstep(2.5, 0.0, waterDepth);
                     float bubbles = retreatFactor * shallowArea * step(0.45, bubbleNoise);
                     foamMask += bubbles * 0.8;
                     
-                    // Crest Foam
-                    float crestFoam = smoothstep(0.8, 1.2, vWaveHeight - noise(vWorldPos.xz * 0.2) * 0.5);
-                    foamMask += crestFoam;
+                    // Crest Foam (Ocean Only)
+                    // Ponds shouldn't have whitecaps
+                    float waveCrest = smoothstep(0.8, 1.4, vWaveHeight - noise(vWorldPos.xz * 0.2) * 0.5);
+                    foamMask += waveCrest * vOceanFactor; 
 
                     foamMask = clamp(foamMask, 0.0, 1.0);
 
                     // 3. Color Mixing
                     float depthFactor = smoothstep(0.0, 12.0, visualDepth);
-                    vec3 waterColor = mix(uShallowColor, uBaseColor, depthFactor);
+                    
+                    // Dynamic Base Color: Ponds are greener/darker, Ocean is bluer
+                    vec3 pondColor = vec3(0.0, 0.15, 0.12);
+                    vec3 oceanColor = uBaseColor;
+                    vec3 deepColor = mix(pondColor, oceanColor, vOceanFactor);
+                    
+                    vec3 waterColor = mix(uShallowColor, deepColor, depthFactor);
                     
                     // 4. Lighting
                     vec3 viewDir = normalize(vViewPosition);
                     vec3 normal = normalize(vNormal);
                     
-                    // Perturb normal with layered noise for surface detail
+                    // Perturb normal - Less perturbation on ponds (glassy)
+                    float roughness = 0.3 + 0.7 * vOceanFactor;
                     float n1 = noise(vWorldPos.xz * 0.5 + uTime * 0.5);
                     float n2 = noise(vWorldPos.xz * 1.0 - uTime * 0.8);
-                    normal.x += (n1 - 0.5) * 0.2;
-                    normal.z += (n2 - 0.5) * 0.2;
+                    normal.x += (n1 - 0.5) * 0.2 * roughness;
+                    normal.z += (n2 - 0.5) * 0.2 * roughness;
                     normal = normalize(normal);
 
                     vec3 sunDir = normalize(uSunPosition);
-                    
-                    // Specular
                     vec3 halfVector = normalize(sunDir + viewDir);
                     float NdotH = max(0.0, dot(normal, halfVector));
                     float specular = pow(NdotH, 120.0) * 1.5; 
                     
-                    // Fresnel
                     float fresnel = pow(1.0 - max(0.0, dot(viewDir, normal)), 4.0);
                     fresnel = clamp(fresnel, 0.0, 1.0);
                     
@@ -247,7 +237,7 @@ export class WaterSystem {
                     finalColor = mix(finalColor, uFoamColor, foamMask * 0.9);
 
                     // 5. Opacity
-                    float opacity = mix(0.5, 0.98, depthFactor);
+                    float opacity = mix(0.6, 0.98, depthFactor);
                     opacity = mix(opacity, 1.0, foamMask); 
 
                     gl_FragColor = vec4(finalColor, opacity);
@@ -395,11 +385,6 @@ export class WaterSystem {
         this.time += dt;
         if (this.material) {
             this.material.uniforms.uTime.value = this.time;
-            
-            // Rotate tide slowly
-            const tideSpeed = 0.05; // Slow shift
-            const tideAngle = this.time * tideSpeed;
-            this.material.uniforms.uTideDirection.value.set(Math.cos(tideAngle), Math.sin(tideAngle));
         }
         
         // Update Bubbles
@@ -424,27 +409,22 @@ export class WaterSystem {
     }
 
     getHeightAt(x, z) {
-        // Approximate physics height
+        // Simplified Gerstner approximation matching new shader
+        // 1. Calculate Ocean vs Inland Factor
         const dist = Math.sqrt(x*x + z*z);
-        const oceanFactor = Math.min(1.0, Math.max(0.0, (dist - 400) / 500));
+        const oceanFactor = Math.min(1.0, Math.max(0.0, (dist - 600.0) / 350.0));
         
-        // Large Swell (Ocean only)
-        let y = 0;
-        if (oceanFactor > 0.1) {
-             const t = this.time * 0.8;
-             // Tide dir approx
-             const tideAngle = t * 0.05; // Matches update
-             const tx = Math.cos(tideAngle);
-             const tz = Math.sin(tideAngle);
-             
-             const k = 2.0 * Math.PI / 90.0;
-             const phase = k * ((x * tx + z * tz) - 8.0 * t); // Speed approx
-             y += oceanFactor * 2.0 * Math.sin(phase);
-        }
+        // Ocean Swell (scaled by oceanFactor)
+        const k1 = 2.0 * Math.PI / 90.0;
+        const c1 = Math.sqrt(9.8 / k1);
+        const f1 = k1 * ((x * 1.0 + z * 0.4) - c1 * 0.7 * this.time);
+        const y1 = (0.22 / k1) * Math.sin(f1) * oceanFactor;
         
-        // Inland Ripple
-        y += 0.2 * Math.sin(x * 0.5 + this.time) * Math.cos(z * 0.5 + this.time);
+        // Ripple (Everywhere)
+        const kR = 2.0 * Math.PI / 8.0;
+        const fR = kR * ((x * 0.5 + z * 0.2) - 1.5 * this.time);
+        const yR = (0.04 / kR) * Math.sin(fR);
         
-        return this.waterLevel + y;
+        return this.waterLevel + y1 + yR;
     }
 }
