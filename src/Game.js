@@ -42,6 +42,7 @@ export class Game {
         // New Refactored Systems
         this.interactionSystem = new InteractionSystem(this);
         this.roamingSystem = new RoamingSystem(this);
+        this.combatSystem.roamingSystem = this.roamingSystem;
 
         // Camera controller (handles orbit & compass)
         this.cameraController = new CameraController(this.camera, this.player.mesh);
@@ -218,7 +219,10 @@ export class Game {
 
     endBattle() {
         this.gameState = 'ROAMING';
-        this.combatSystem.cleanup();
+        const leftover = this.combatSystem.cleanup();
+        if (leftover && leftover.length > 0) {
+            this.roamingSystem.projectiles.push(...leftover);
+        }
     }
     
     handleVictory(xp = 20) {

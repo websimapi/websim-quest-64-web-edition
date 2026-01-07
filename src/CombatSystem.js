@@ -24,6 +24,7 @@ export class CombatSystem {
         this.currentMove = 8.0;
         this.turnTimer = 0;
         this.aiCastPending = false;
+        this.roamingSystem = null;
     }
 
     getBattleAI(dt) {
@@ -209,8 +210,9 @@ export class CombatSystem {
         });
         this.activeEnemies = [];
 
-        this.projectiles.forEach(p => p.dispose());
+        const remaining = this.projectiles;
         this.projectiles = [];
+        return remaining;
     }
 
     playerCast(element) {
@@ -331,7 +333,15 @@ export class CombatSystem {
             this.world,
             target
         );
-        this.projectiles.push(projectile);
+
+        if (this.active) {
+            this.projectiles.push(projectile);
+        } else if (this.roamingSystem) {
+            // Battle ended during cast time, handoff to roaming
+            this.roamingSystem.projectiles.push(projectile);
+        } else {
+            projectile.dispose();
+        }
     }
 
     update(dt, inputs, world) {
