@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { Enemy } from './Enemy.js';
 import { Noise } from './Noise.js';
+import { GrassSystem } from './GrassSystem.js';
 
 export class World {
     constructor(scene) {
@@ -10,7 +11,7 @@ export class World {
         this.segments = 256; // Higher res for smoother terrain
         this.enemies = [];
         this.noise = new Noise();
-        this.grassMeshes = [];
+        this.grassSystem = new GrassSystem(scene, this);
         
         // Story Regions
         this.regions = [
@@ -28,7 +29,7 @@ export class World {
         this.grassTexture = await loader.loadAsync('grass_texture.png');
     }
 
-    generate() {
+    generate(player) {
         // 1. Terrain Geometry
         const geometry = new THREE.PlaneGeometry(this.size, this.size, this.segments, this.segments);
         
@@ -104,6 +105,11 @@ export class World {
         this.generateDetails();
         this.generateEnemies();
         
+        // Generate Advanced Grass
+        if (this.grassTexture) {
+            this.grassSystem.generate(this.grassTexture, player);
+        }
+
         // Environment
         const ambient = new THREE.AmbientLight(0xffffff, 0.4);
         this.scene.add(ambient);
@@ -200,51 +206,8 @@ export class World {
     }
 
     generateDetails() {
-        // 1. Grass System (InstancedMesh)
-        // Only generate grass in Grassland and Forest
-        const grassGeo = new THREE.PlaneGeometry(1.5, 1.5);
-        const grassMat = new THREE.MeshStandardMaterial({
-            map: this.grassTexture,
-            transparent: true,
-            alphaTest: 0.5,
-            side: THREE.DoubleSide,
-            color: 0x88bb88
-        });
-
-        const grassCount = 6000;
-        const grassMesh = new THREE.InstancedMesh(grassGeo, grassMat, grassCount);
-        grassMesh.castShadow = false;
-        grassMesh.receiveShadow = true;
-        
-        const dummy = new THREE.Object3D();
-        let idx = 0;
-        
-        for (let i=0; i<10000; i++) { // Try 10k spots, fill up to grassCount
-            if (idx >= grassCount) break;
-            
-            const x = (Math.random() - 0.5) * 1000;
-            const z = (Math.random() - 0.5) * 1000;
-            const biome = this.getBiome(x, z);
-            
-            if (biome === 'GRASSLAND' || biome === 'FOREST') {
-                const y = this.getHeight(x, z);
-                if (y < 1) continue; // Don't place in water
-
-                dummy.position.set(x, y + 0.75, z);
-                dummy.rotation.set(0, Math.random() * Math.PI, 0);
-                dummy.scale.setScalar(0.8 + Math.random() * 0.5);
-                
-                // Tilt with terrain? Simplified: just straight up but randomized tilt
-                dummy.rotation.x = (Math.random() - 0.5) * 0.2;
-                dummy.rotation.z = (Math.random() - 0.5) * 0.2;
-                
-                dummy.updateMatrix();
-                grassMesh.setMatrixAt(idx, dummy.matrix);
-                idx++;
-            }
-        }
-        this.scene.add(grassMesh);
-        this.grassMeshes.push(grassMesh);
+        // 1. Grass System is now handled by GrassSystem.js
+        // We skip the old manual InstancedMesh generation here.
 
         // 2. Trees and Rocks
         const treeGeo = new THREE.ConeGeometry(1.5, 6, 8); 
@@ -360,5 +323,9 @@ export class World {
         this.enemies.forEach(e => {
              if(e.mesh) e.update(dt, playerPos, this);
         });
+        
+        if (this.grassSystem) {
+            this.grassSystem.update(dt);
+        }
     }
 }

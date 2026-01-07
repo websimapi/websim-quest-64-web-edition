@@ -73,7 +73,7 @@ export class Game {
         ]);
 
         this.audioManager.playBgm('bgm');
-        this.world.generate();
+        this.world.generate(this.player);
         this.player.mesh.position.y = this.world.getHeight(0, 0);
 
         // Ensure camera follows the loaded player
