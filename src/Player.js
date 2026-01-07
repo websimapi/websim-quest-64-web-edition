@@ -7,6 +7,7 @@ export class Player {
         this.mesh = new THREE.Group();
         this.speed = 8;
         this.isMoving = false;
+        this.aiControlled = true;
         
         this.spirits = {
             fire: 1,

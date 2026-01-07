@@ -12,6 +12,8 @@ export class Game {
     constructor(audioCtx) {
         this.audioCtx = audioCtx;
         this.container = document.getElementById('game-container');
+        this.aiTarget = null;
+        this.aiActionTimer = 0;
         
         // Setup Three.js
         this.scene = new THREE.Scene();
@@ -51,6 +53,11 @@ export class Game {
 
         // removed cameraState (now handled in CameraController)
         // removed inputState (now handled in InputManager)
+    }
+
+    takeControl() {
+        this.player.aiControlled = false;
+        this.uiManager.showMessage("YOU HAVE CONTROL!", 2000);
     }
 
     async start() {
@@ -154,6 +161,41 @@ export class Game {
         }
     }
 
+    updateAI(dt, inputs) {
+        if (this.gameState === 'ROAMING') {
+            // Find target
+            if (!this.aiTarget || this.aiTarget.hp <= 0) {
+                // Get closest living enemy
+                let minDist = 999;
+                let closest = null;
+                for (let e of this.world.enemies) {
+                    if (e.hp > 0) {
+                        const d = e.mesh.position.distanceTo(this.player.mesh.position);
+                        if (d < minDist) { minDist = d; closest = e; }
+                    }
+                }
+                this.aiTarget = closest;
+            }
+
+            if (this.aiTarget) {
+                const pPos = this.player.mesh.position;
+                const tPos = this.aiTarget.mesh.position;
+                const dist = pPos.distanceTo(tPos);
+
+                // Move towards
+                const dir = new THREE.Vector3().subVectors(tPos, pPos).normalize();
+                
+                // Set inputs directly (since these bypass camera transform in loop logic)
+                inputs.x = dir.x;
+                inputs.y = -dir.z; 
+            } else {
+                 // Idle roam if no enemies
+                 inputs.x = Math.sin(Date.now() * 0.001);
+                 inputs.y = Math.cos(Date.now() * 0.001);
+            }
+        }
+    }
+
     spawnRoamingProjectile(element, config) {
         if (config.type === 'heal') {
             // Self heal logic duplication from CombatSystem (simplified)
@@ -207,7 +249,10 @@ export class Game {
 
         // Inputs: Transform inputs to be relative to camera for Player
         const transformedInputs = { x: 0, y: 0 };
-        if (this.inputs.x !== 0 || this.inputs.y !== 0) {
+        
+        if (this.player.aiControlled) {
+            this.updateAI(dt, transformedInputs);
+        } else if (this.inputs.x !== 0 || this.inputs.y !== 0) {
             // Forward vector on XZ plane
             const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.quaternion);
             forward.y = 0; forward.normalize();
@@ -217,10 +262,6 @@ export class Game {
             // input y is forward, x is right
             const moveDir = forward.multiplyScalar(this.inputs.y).add(right.multiplyScalar(this.inputs.x));
             
-            // Map back to x/y for player (x=x, y=-z logic in player)
-            // Player expects: x, -y. 
-            // Player code: moveVec = (x, 0, -y).
-            // So we pass x = moveDir.x, y = -moveDir.z
             transformedInputs.x = moveDir.x;
             transformedInputs.y = -moveDir.z;
         }

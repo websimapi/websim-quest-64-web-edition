@@ -22,6 +22,41 @@ export class CombatSystem {
         this.maxMove = 8.0;
         this.currentMove = 8.0;
         this.turnTimer = 0;
+        this.aiCastPending = false;
+    }
+
+    getBattleAI(dt) {
+        const inputs = { x: 0, y: 0 };
+        if (this.player.castState.active) return inputs;
+        
+        this.turnTimer += dt;
+        if (this.turnTimer < 0.5) return inputs;
+
+        // Target logic
+        let target = this.activeEnemies.find(e => e.hp > 0);
+        if (!target) return inputs;
+
+        const dist = this.player.mesh.position.distanceTo(target.mesh.position);
+        
+        // Move if far
+        if (dist > 15 && this.currentMove > 1) {
+            const dir = new THREE.Vector3().subVectors(target.mesh.position, this.player.mesh.position).normalize();
+            inputs.x = dir.x;
+            inputs.y = -dir.z;
+        } 
+        else {
+             // Cast
+             if (!this.aiCastPending) {
+                 this.aiCastPending = true;
+                 const elements = ['fire', 'water', 'earth', 'wind'];
+                 const el = elements[Math.floor(Math.random() * elements.length)];
+                 this.player.faceTarget(target.mesh.position);
+                 this.playerCast(el);
+                 this.turnTimer = -2.0; // Pause before next action
+                 setTimeout(()=> { this.aiCastPending = false; }, 2000);
+             }
+        }
+        return inputs;
     }
 
     initBattle(centerPos, primaryEnemy, allEnemies, world) {
@@ -278,6 +313,14 @@ export class CombatSystem {
 
         // Turn Logic
         let canMove = false;
+
+        // AI override inputs for player turn
+        if (this.turn === 'PLAYER' && this.player.aiControlled) {
+            const aiInputs = this.getBattleAI(dt);
+            if (aiInputs.x !== 0 || aiInputs.y !== 0) {
+                 inputs = aiInputs;
+            }
+        }
 
         if (this.turn === 'PLAYER') {
             canMove = this.currentMove > 0;

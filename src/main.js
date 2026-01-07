@@ -1,18 +1,23 @@
 import { Game } from './Game.js';
 
-const startBtn = document.getElementById('start-btn');
 const overlay = document.getElementById('start-overlay');
-
 let game;
 
-startBtn.addEventListener('click', async () => {
+// Initialize Audio Context (suspended initially)
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+game = new Game(audioCtx);
+game.start(); // Starts in AI mode
+
+overlay.addEventListener('click', async () => {
     overlay.style.display = 'none';
     
-    // Initialize Audio Context (must be user triggered)
-    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    // Resume Audio Context on interaction
+    if (audioCtx.state === 'suspended') {
+        await audioCtx.resume();
+    }
     
-    game = new Game(audioCtx);
-    game.start();
+    game.takeControl();
 });
 
 // Handle resize
