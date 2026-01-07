@@ -21,60 +21,73 @@ export class WaterSystem {
         this.material = new THREE.ShaderMaterial({
             uniforms: {
                 uTime: { value: 0 },
-                uBaseColor: { value: new THREE.Color(0x005588) },
-                uShallowColor: { value: new THREE.Color(0x44aaff) },
-                uSunPosition: { value: new THREE.Vector3(100, 200, 100).normalize() }
+                uBaseColor: { value: new THREE.Color(0x004488) }, // Deep Blue
+                uShallowColor: { value: new THREE.Color(0x0088cc) }, // Cyan-ish
+                uSunPosition: { value: new THREE.Vector3(100, 200, 100).normalize() },
+                fogColor: { value: this.scene.fog.color },
+                fogNear: { value: this.scene.fog.near },
+                fogFar: { value: this.scene.fog.far }
             },
             vertexShader: `
+                #include <fog_pars_vertex>
+                
                 uniform float uTime;
                 varying float vHeight;
                 varying vec3 vWorldPos;
                 varying vec3 vNormal;
+                varying vec3 vViewPosition;
 
-                // Gerstner Wave approximation
+                // Improved Wave Function
                 vec3 calculateWave(vec3 p) {
-                    float t = uTime * 0.8;
+                    float t = uTime * 0.6;
                     
-                    float wave1 = sin(p.x * 0.05 + t);
-                    float wave2 = cos(p.z * 0.04 + t * 0.8);
-                    float wave3 = sin(p.x * 0.1 + p.z * 0.1 + t * 1.5) * 0.5;
+                    // Mix of frequencies for more natural look
+                    float y = 0.0;
+                    y += sin(p.x * 0.05 + t) * 0.5;
+                    y += cos(p.z * 0.03 + t * 0.8) * 0.5;
+                    y += sin(p.x * 0.15 + p.z * 0.1 + t * 1.5) * 0.2;
+                    y += cos(p.x * 0.2 - p.z * 0.15 + t * 2.0) * 0.1;
                     
-                    float y = (wave1 + wave2 + wave3) * 0.6;
+                    // Sharp peaks, smooth troughs
+                    y = y - 0.3; // Lower average level slightly
+                    
                     return vec3(p.x, p.y + y, p.z);
                 }
 
-                // Analytical Normal Calculation
+                // Analytical Normal (Approximation)
                 vec3 calculateNormal(vec3 p) {
-                    float t = uTime * 0.8;
-                    // Derivatives of the wave function above
-                    // dy/dx
-                    float dydx = (0.05 * cos(p.x * 0.05 + t) + 
-                                  0.1 * 0.5 * cos(p.x * 0.1 + p.z * 0.1 + t * 1.5)) * 0.6;
-                    // dy/dz
-                    float dydz = (-0.04 * sin(p.z * 0.04 + t * 0.8) + 
-                                  0.1 * 0.5 * cos(p.x * 0.1 + p.z * 0.1 + t * 1.5)) * 0.6;
+                    float d = 0.1;
+                    vec3 p1 = calculateWave(p);
+                    vec3 p2 = calculateWave(p + vec3(d, 0, 0));
+                    vec3 p3 = calculateWave(p + vec3(0, 0, d));
                     
-                    return normalize(vec3(-dydx, 1.0, -dydz));
+                    vec3 v1 = p2 - p1;
+                    vec3 v2 = p3 - p1;
+                    
+                    return normalize(cross(v2, v1));
                 }
 
                 void main() {
                     vec3 pos = position;
-                    
-                    // Apply offset based on world position (simulating world-space noise)
                     vec4 worldPos = modelMatrix * vec4(pos, 1.0);
                     
-                    // Recalculate based on world coords so seams match
                     vec3 displacedWorld = calculateWave(worldPos.xyz);
                     
-                    // Convert back to local for rendering logic if needed, but easier to just use world Y
-                    vHeight = displacedWorld.y - worldPos.y; // Relative height
+                    vHeight = displacedWorld.y - worldPos.y;
                     vNormal = calculateNormal(worldPos.xyz);
                     vWorldPos = displacedWorld;
                     
-                    gl_Position = projectionMatrix * viewMatrix * vec4(displacedWorld, 1.0);
+                    vec4 mvPosition = viewMatrix * vec4(displacedWorld, 1.0);
+                    gl_Position = projectionMatrix * mvPosition;
+                    
+                    vViewPosition = -mvPosition.xyz;
+                    
+                    #include <fog_vertex>
                 }
             `,
             fragmentShader: `
+                #include <fog_pars_fragment>
+                
                 uniform vec3 uBaseColor;
                 uniform vec3 uShallowColor;
                 uniform vec3 uSunPosition;
@@ -82,41 +95,44 @@ export class WaterSystem {
                 varying float vHeight;
                 varying vec3 vWorldPos;
                 varying vec3 vNormal;
+                varying vec3 vViewPosition;
 
                 void main() {
-                    // Mix Color
-                    float heightFactor = smoothstep(-1.0, 1.0, vHeight);
-                    vec3 albedo = mix(uBaseColor, uShallowColor, heightFactor);
+                    // Base Color Mixing
+                    float mixFactor = smoothstep(-1.0, 1.5, vHeight);
+                    vec3 albedo = mix(uBaseColor, uShallowColor, mixFactor);
                     
-                    // Lighting
-                    vec3 N = normalize(vNormal);
-                    vec3 L = uSunPosition;
-                    vec3 V = normalize(cameraPosition - vWorldPos);
+                    vec3 viewDir = normalize(vViewPosition);
+                    vec3 normal = normalize(vNormal);
+                    vec3 sunDir = normalize(uSunPosition);
                     
-                    // Diffuse
-                    float diff = max(dot(N, L), 0.0);
-                    vec3 diffuse = albedo * (0.6 + 0.4 * diff);
+                    // Specular (Sun reflection)
+                    vec3 halfVector = normalize(sunDir + viewDir);
+                    float NdotH = max(0.0, dot(normal, halfVector));
+                    float specular = pow(NdotH, 100.0) * 1.5; // Sharp highlight
                     
-                    // Specular
-                    vec3 H = normalize(L + V);
-                    float spec = pow(max(dot(N, H), 0.0), 32.0);
-                    vec3 specular = vec3(1.0) * spec * 0.5;
+                    // Fresnel (Sky reflection at angles)
+                    float fresnel = pow(1.0 - max(0.0, dot(viewDir, normal)), 4.0);
+                    vec3 skyColor = vec3(0.6, 0.8, 1.0);
                     
-                    // Fresnel (Fake reflection)
-                    float fresnel = pow(1.0 - max(dot(N, V), 0.0), 3.0);
-                    diffuse += vec3(0.5, 0.7, 0.9) * fresnel * 0.5;
-
-                    // Foam at peaks
-                    if (vHeight > 0.6) {
-                        diffuse = mix(diffuse, vec3(1.0), (vHeight - 0.6) * 2.0);
+                    vec3 finalColor = mix(albedo, skyColor, fresnel * 0.6);
+                    finalColor += vec3(1.0) * specular;
+                    
+                    // Foam tips
+                    if (vHeight > 0.8) {
+                        float foam = smoothstep(0.8, 1.2, vHeight);
+                        finalColor = mix(finalColor, vec3(1.0), foam);
                     }
 
-                    gl_FragColor = vec4(diffuse + specular, 0.85);
+                    gl_FragColor = vec4(finalColor, 0.9);
+                    
+                    #include <fog_fragment>
                 }
             `,
             transparent: true,
+            fog: true,
             side: THREE.DoubleSide,
-            depthWrite: false // Keep false for transparency sorting, but relying on chunking for better sort
+            depthWrite: false 
         });
 
         // Create tiled grid

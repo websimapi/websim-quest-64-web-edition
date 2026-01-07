@@ -134,7 +134,7 @@ export class World {
         this.scene.add(sun);
         
         // Fog for atmosphere
-        this.scene.fog = new THREE.Fog(0x87CEEB, 80, 250);
+        this.scene.fog = new THREE.Fog(0x87CEEB, 200, 700);
     }
 
     getHeight(x, z) {
