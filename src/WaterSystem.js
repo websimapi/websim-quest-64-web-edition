@@ -5,107 +5,154 @@ export class WaterSystem {
         this.scene = scene;
         this.waterLevel = 1.0; 
         this.time = 0;
-        this.mesh = null;
+        this.chunks = [];
+        this.material = null;
     }
 
     create() {
-        const geometry = new THREE.PlaneGeometry(3000, 3000, 128, 128);
+        // Split water into smaller chunks for better depth sorting with NPCs
+        const size = 2000;
+        const tileSize = 200;
+        const divisions = 20;
+        
+        const geometry = new THREE.PlaneGeometry(tileSize, tileSize, divisions, divisions);
         geometry.rotateX(-Math.PI / 2);
 
-        const material = new THREE.ShaderMaterial({
+        this.material = new THREE.ShaderMaterial({
             uniforms: {
                 uTime: { value: 0 },
-                uBaseColor: { value: new THREE.Color(0x006994) }, // Deep blue
-                uShallowColor: { value: new THREE.Color(0x00a8cc) }, // Light blue
+                uBaseColor: { value: new THREE.Color(0x005588) },
+                uShallowColor: { value: new THREE.Color(0x44aaff) },
+                uSunPosition: { value: new THREE.Vector3(100, 200, 100).normalize() }
             },
             vertexShader: `
                 uniform float uTime;
-                varying vec2 vUv;
                 varying float vHeight;
                 varying vec3 vWorldPos;
+                varying vec3 vNormal;
 
-                // Simple 2D Noise
-                float hash(vec2 p) { return fract(1e4 * sin(17.0 * p.x + p.y * 0.1) * (0.1 + abs(sin(p.y * 13.0 + p.x)))); }
-                float noise(vec2 x) {
-                    vec2 i = floor(x);
-                    vec2 f = fract(x);
-                    float a = hash(i);
-                    float b = hash(i + vec2(1.0, 0.0));
-                    float c = hash(i + vec2(0.0, 1.0));
-                    float d = hash(i + vec2(1.0, 1.0));
-                    vec2 u = f * f * (3.0 - 2.0 * f);
-                    return mix(a, b, u.x) + (c - a) * u.y * (1.0 - u.x) + (d - b) * u.x * u.y;
+                // Gerstner Wave approximation
+                vec3 calculateWave(vec3 p) {
+                    float t = uTime * 0.8;
+                    
+                    float wave1 = sin(p.x * 0.05 + t);
+                    float wave2 = cos(p.z * 0.04 + t * 0.8);
+                    float wave3 = sin(p.x * 0.1 + p.z * 0.1 + t * 1.5) * 0.5;
+                    
+                    float y = (wave1 + wave2 + wave3) * 0.6;
+                    return vec3(p.x, p.y + y, p.z);
+                }
+
+                // Analytical Normal Calculation
+                vec3 calculateNormal(vec3 p) {
+                    float t = uTime * 0.8;
+                    // Derivatives of the wave function above
+                    // dy/dx
+                    float dydx = (0.05 * cos(p.x * 0.05 + t) + 
+                                  0.1 * 0.5 * cos(p.x * 0.1 + p.z * 0.1 + t * 1.5)) * 0.6;
+                    // dy/dz
+                    float dydz = (-0.04 * sin(p.z * 0.04 + t * 0.8) + 
+                                  0.1 * 0.5 * cos(p.x * 0.1 + p.z * 0.1 + t * 1.5)) * 0.6;
+                    
+                    return normalize(vec3(-dydx, 1.0, -dydz));
                 }
 
                 void main() {
-                    vUv = uv;
                     vec3 pos = position;
                     
-                    // Tide (Global slow heave)
-                    float tide = sin(uTime * 0.3) * 0.8; 
-
-                    // Waves (Detail)
-                    float w1 = sin(pos.x * 0.02 + uTime * 0.5);
-                    float w2 = cos(pos.z * 0.03 + uTime * 0.4);
-                    float n = noise(pos.xz * 0.05 + uTime * 0.2);
+                    // Apply offset based on world position (simulating world-space noise)
+                    vec4 worldPos = modelMatrix * vec4(pos, 1.0);
                     
-                    float displacement = tide + (w1 + w2) * 0.4 + n * 0.3;
-                    pos.y += displacement;
+                    // Recalculate based on world coords so seams match
+                    vec3 displacedWorld = calculateWave(worldPos.xyz);
                     
-                    vHeight = displacement;
+                    // Convert back to local for rendering logic if needed, but easier to just use world Y
+                    vHeight = displacedWorld.y - worldPos.y; // Relative height
+                    vNormal = calculateNormal(worldPos.xyz);
+                    vWorldPos = displacedWorld;
                     
-                    vec4 worldPosition = modelMatrix * vec4(pos, 1.0);
-                    vWorldPos = worldPosition.xyz;
-                    gl_Position = projectionMatrix * viewMatrix * worldPosition;
+                    gl_Position = projectionMatrix * viewMatrix * vec4(displacedWorld, 1.0);
                 }
             `,
             fragmentShader: `
                 uniform vec3 uBaseColor;
                 uniform vec3 uShallowColor;
-                uniform float uTime;
+                uniform vec3 uSunPosition;
+                
                 varying float vHeight;
                 varying vec3 vWorldPos;
+                varying vec3 vNormal;
 
                 void main() {
-                    // Color based on wave height
-                    float t = smoothstep(-1.0, 1.5, vHeight);
-                    vec3 col = mix(uBaseColor, uShallowColor, t);
+                    // Mix Color
+                    float heightFactor = smoothstep(-1.0, 1.0, vHeight);
+                    vec3 albedo = mix(uBaseColor, uShallowColor, heightFactor);
                     
-                    // Highlights
-                    float highlight = smoothstep(0.8, 1.2, vHeight + sin(vWorldPos.x * 0.5 + uTime) * 0.1);
-                    col += vec3(0.3) * highlight;
+                    // Lighting
+                    vec3 N = normalize(vNormal);
+                    vec3 L = uSunPosition;
+                    vec3 V = normalize(cameraPosition - vWorldPos);
                     
-                    // Fake foam at crests
-                    float foam = step(0.9, sin(vWorldPos.x + vWorldPos.z + uTime * 2.0) * 0.5 + 0.5);
-                    col += vec3(0.2) * foam * smoothstep(0.5, 1.5, vHeight);
+                    // Diffuse
+                    float diff = max(dot(N, L), 0.0);
+                    vec3 diffuse = albedo * (0.6 + 0.4 * diff);
+                    
+                    // Specular
+                    vec3 H = normalize(L + V);
+                    float spec = pow(max(dot(N, H), 0.0), 32.0);
+                    vec3 specular = vec3(1.0) * spec * 0.5;
+                    
+                    // Fresnel (Fake reflection)
+                    float fresnel = pow(1.0 - max(dot(N, V), 0.0), 3.0);
+                    diffuse += vec3(0.5, 0.7, 0.9) * fresnel * 0.5;
 
-                    // Alpha (transparency)
-                    gl_FragColor = vec4(col, 0.75);
+                    // Foam at peaks
+                    if (vHeight > 0.6) {
+                        diffuse = mix(diffuse, vec3(1.0), (vHeight - 0.6) * 2.0);
+                    }
+
+                    gl_FragColor = vec4(diffuse + specular, 0.85);
                 }
             `,
             transparent: true,
             side: THREE.DoubleSide,
-            depthWrite: false
+            depthWrite: false // Keep false for transparency sorting, but relying on chunking for better sort
         });
 
-        this.mesh = new THREE.Mesh(geometry, material);
-        this.mesh.position.y = this.waterLevel;
-        this.mesh.receiveShadow = true;
-        this.scene.add(this.mesh);
+        // Create tiled grid
+        const range = size / 2;
+        const step = tileSize;
+        
+        for (let x = -range; x < range; x += step) {
+            for (let z = -range; z < range; z += step) {
+                const mesh = new THREE.Mesh(geometry, this.material);
+                // Center position
+                mesh.position.set(x + step/2, this.waterLevel, z + step/2);
+                
+                // Important: Disable frustum culling or increase bounding box
+                // because waves displace vertices outside the flat box
+                mesh.frustumCulled = false; 
+                
+                this.scene.add(mesh);
+                this.chunks.push(mesh);
+            }
+        }
     }
 
     update(dt) {
         this.time += dt;
-        if (this.mesh) {
-            this.mesh.material.uniforms.uTime.value = this.time;
+        if (this.material) {
+            this.material.uniforms.uTime.value = this.time;
         }
     }
 
     getHeightAt(x, z) {
-        // Approximate the shader math for physics
-        const tide = Math.sin(this.time * 0.3) * 0.8;
-        const w1 = Math.sin(x * 0.02 + this.time * 0.5);
-        const w2 = Math.cos(z * 0.03 + this.time * 0.4);
-        return this.waterLevel + tide + (w1 + w2) * 0.4;
+        // Updated physics approx
+        const t = this.time * 0.8;
+        const wave1 = Math.sin(x * 0.05 + t);
+        const wave2 = Math.cos(z * 0.04 + t * 0.8);
+        const wave3 = Math.sin(x * 0.1 + z * 0.1 + t * 1.5) * 0.5;
+        const y = (wave1 + wave2 + wave3) * 0.6;
+        return this.waterLevel + y;
     }
 }
