@@ -21,6 +21,7 @@ export class Enemy {
         this.element = def.element;
         this.baseColor = def.color;
         this.animStyle = def.animStyle;
+        this.moves = def.moves || [{ type: 'MELEE', name: 'Attack', power: 1.0, range: 2.0 }];
 
         // Apply Level Scaling
         const scale = 1 + ((level - 1) * 0.2); 
@@ -34,14 +35,15 @@ export class Enemy {
         
         this.roamOrigin = new THREE.Vector3(x, this.yOffset, z);
         this.lastPosition = this.roamOrigin.clone();
-        this.roamRadius = 20;
+        this.roamRadius = 25;
         this.roamTarget = this.roamOrigin.clone();
         this.waitTime = 0;
+        this.moveTimer = 0; // Prevent infinite walking
 
         this.mesh.position.copy(this.roamOrigin);
         this.scene.add(this.mesh);
         
-        // removed massive switch statement and geometry construction logic
+        this.selectedMove = null;
     }
 
     setTexture(texture) {
@@ -106,22 +108,60 @@ export class Enemy {
             // Roaming logic
             if (this.waitTime > 0) {
                 this.waitTime -= dt;
+                // Idle look around
+                if (Math.random() < 0.02) {
+                    this.mesh.rotation.y += (Math.random() - 0.5) * 1.0;
+                }
             } else {
                 const dist = this.mesh.position.distanceTo(this.roamTarget);
-                if (dist < 1) {
+                // Also stop if taking too long (stuck?)
+                this.moveTimer += dt;
+                
+                if (dist < 1.0 || this.moveTimer > 10.0) {
                     // Pick new target
-                    const angle = Math.random() * Math.PI * 2;
-                    const r = Math.random() * this.roamRadius;
-                    this.roamTarget.set(
-                        this.roamOrigin.x + Math.cos(angle) * r,
-                        this.mesh.position.y,
-                        this.roamOrigin.z + Math.sin(angle) * r
-                    );
-                    this.waitTime = 1 + Math.random() * 2;
+                    let valid = false;
+                    let attempts = 0;
+                    const nextTarget = new THREE.Vector3();
+                    
+                    while (!valid && attempts < 5) {
+                        const angle = Math.random() * Math.PI * 2;
+                        const r = Math.random() * this.roamRadius;
+                        nextTarget.set(
+                            this.roamOrigin.x + Math.cos(angle) * r,
+                            0,
+                            this.roamOrigin.z + Math.sin(angle) * r
+                        );
+                        
+                        // Validate if world exists
+                        if (world) {
+                            const h = world.getHeight(nextTarget.x, nextTarget.z);
+                            const currentH = world.getHeight(this.mesh.position.x, this.mesh.position.z);
+                            
+                            // Don't go into water if land
+                            if (!this.isAquatic && h < 1.0) { attempts++; continue; }
+                            // Don't go on land if aquatic
+                            if (this.isAquatic && h > 1.0) { attempts++; continue; }
+                            // Don't climb steep cliffs
+                            if (Math.abs(h - currentH) > 10.0) { attempts++; continue; }
+                        }
+                        
+                        valid = true;
+                    }
+                    
+                    this.roamTarget.copy(nextTarget);
+                    this.waitTime = 1 + Math.random() * 3;
+                    this.moveTimer = 0;
                 } else {
                     const dir = new THREE.Vector3().subVectors(this.roamTarget, this.mesh.position).normalize();
                     this.mesh.position.add(dir.multiplyScalar((this.speed * 0.5) * dt));
-                    this.mesh.lookAt(this.roamTarget);
+                    // Smoothly rotate towards
+                    const targetRot = Math.atan2(dir.x, dir.z);
+                    const curRot = this.mesh.rotation.y;
+                    let diff = targetRot - curRot;
+                    while(diff < -Math.PI) diff += Math.PI*2;
+                    while(diff > Math.PI) diff -= Math.PI*2;
+                    this.mesh.rotation.y += diff * dt * 5;
+                    
                     isMoving = true;
                 }
             }
@@ -130,45 +170,73 @@ export class Enemy {
 
     animate(dt, isMoving) {
         const t = Date.now() * 0.001;
+        const mesh = this.mesh;
         
-        // Animation Logic based on animStyle
-        if (this.animStyle === 'SQUASH') {
+        // --- Limb Animation ---
+        const legL = mesh.getObjectByName('legL');
+        const legR = mesh.getObjectByName('legR');
+        const armL = mesh.getObjectByName('armL');
+        const armR = mesh.getObjectByName('armR');
+        
+        // 4-legged animation
+        const leg0 = mesh.getObjectByName('leg0');
+        const leg1 = mesh.getObjectByName('leg1');
+        const leg2 = mesh.getObjectByName('leg2');
+        const leg3 = mesh.getObjectByName('leg3');
+
+        if (this.animStyle.includes('WALK') || this.animStyle === 'HOP') {
+            if (isMoving) {
+                // Humanoid Walk
+                if (legL && legR) {
+                    legL.rotation.x = Math.sin(t * 10) * 0.5;
+                    legR.rotation.x = Math.sin(t * 10 + Math.PI) * 0.5;
+                }
+                if (armL && armR) {
+                    armL.rotation.x = Math.sin(t * 10 + Math.PI) * 0.5;
+                    armR.rotation.x = Math.sin(t * 10) * 0.5;
+                }
+                
+                // Quadruped Walk
+                if (leg0) {
+                    leg0.rotation.x = Math.sin(t * 12) * 0.4;
+                    leg1.rotation.x = Math.sin(t * 12 + Math.PI) * 0.4;
+                    leg2.rotation.x = Math.sin(t * 12 + Math.PI * 0.5) * 0.4;
+                    leg3.rotation.x = Math.sin(t * 12 + Math.PI * 1.5) * 0.4;
+                }
+                
+                // Body bob
+                if (this.animStyle === 'HOP') {
+                    mesh.position.y += Math.abs(Math.sin(t * 10)) * 0.1;
+                } else {
+                    // WALK bob
+                    mesh.position.y += Math.sin(t * 15) * 0.03;
+                }
+            } else {
+                // Idle Reset
+                if (legL) legL.rotation.x = THREE.MathUtils.lerp(legL.rotation.x, 0, dt * 5);
+                if (legR) legR.rotation.x = THREE.MathUtils.lerp(legR.rotation.x, 0, dt * 5);
+                if (armL) armL.rotation.x = THREE.MathUtils.lerp(armL.rotation.x, 0, dt * 5);
+                if (armR) armR.rotation.x = THREE.MathUtils.lerp(armR.rotation.x, 0, dt * 5);
+                if (leg0) [leg0, leg1, leg2, leg3].forEach(l => l.rotation.x = THREE.MathUtils.lerp(l.rotation.x, 0, dt*5));
+            }
+        }
+        else if (this.animStyle === 'SQUASH') {
             const freq = isMoving ? 15 : 5;
             const amp = isMoving ? 0.2 : 0.05;
+            // Apply scale to children geometry or uniform scale? 
+            // Simple scale Y bob
             const s = 1.0 + Math.sin(t * freq) * amp;
-            // Note: This overwrites specific scale from factory, but squash/stretch implies 
-            // the whole body deforms. If we wanted to keep size scaling we'd need to store base scale.
-            // For now, assuming relative scale of 1.0 for animation factor.
-            const sizeScale = this.mesh.scale.x; // approximate current scale
-            // Ideally we should store baseScale in constructor if we want to mix them perfectly
-        }
-        else if (this.animStyle === 'HOP') {
-            if (isMoving) {
-                const hop = Math.abs(Math.sin(t * 12));
-                this.mesh.rotation.z = Math.sin(t * 12) * 0.1;
-                this.mesh.position.y += hop * 0.2;
-            } else {
-                this.mesh.rotation.z = THREE.MathUtils.lerp(this.mesh.rotation.z, 0, dt * 5);
-                this.mesh.scale.y = 1.0 + Math.sin(t * 3) * 0.02; // Breathe
-            }
-        }
-        else if (this.animStyle === 'HEAVY') {
-            if (isMoving) {
-                this.mesh.rotation.z = Math.sin(t * 5) * 0.1;
-                this.mesh.rotation.x = Math.abs(Math.cos(t * 5)) * 0.1;
-            }
+            mesh.scale.set(1.0 + (1-s)*0.5, s, 1.0 + (1-s)*0.5); // Preserve volume roughly
         }
         else if (this.animStyle === 'SWIM') {
-            this.mesh.position.y += Math.sin(t * 3) * 0.1;
-            this.mesh.rotation.z = Math.sin(t * 5) * 0.2;
-            this.mesh.rotation.y += Math.sin(t * 2) * 0.01;
+             mesh.position.y += Math.sin(t * 2) * 0.05;
+             mesh.rotation.z = Math.sin(t * 5) * 0.1;
+             // Tail wag for serpent?
         }
         else if (this.animStyle === 'FLOAT') {
-             // Basic bobbing handled in update(), just add some rotation
-             this.mesh.rotation.y += dt;
+             mesh.position.y += Math.sin(t * 2) * 0.005;
+             mesh.rotation.y += dt;
         }
-        
-        // removed specific type checks, replaced with animStyle properties
     }
 
     takeDamage(amount) {
@@ -201,8 +269,17 @@ export class Enemy {
     }
 
     prepareTurn() {
+        // Select Move
+        const roll = Math.random();
+        // Simple AI: 60% first move (usually basic), 40% second (special)
+        if (this.moves.length > 1 && roll > 0.6) {
+            this.selectedMove = this.moves[1];
+        } else {
+            this.selectedMove = this.moves[0];
+        }
+
         this.turnPhase = 'MOVE';
-        this.turnTimer = 1.0;
+        this.turnTimer = 2.0; // Max time to move into position
         this.hasHit = false;
     }
 
@@ -214,34 +291,42 @@ export class Enemy {
         const dir = new THREE.Vector3().subVectors(playerPos, this.mesh.position).normalize();
         dir.y = 0;
 
-        // Base color restoration helper
-        const resetColor = () => {
-            if (this.mesh) this.mesh.material.color.setHex(this.baseColor);
-        };
+        const resetColor = () => { if (this.mesh) this.mesh.material.color.setHex(this.baseColor); };
+        const move = this.selectedMove || this.moves[0];
 
         switch (this.turnPhase) {
             case 'MOVE':
                 this.mesh.lookAt(playerPos);
                 
-                // Different movement goals
-                let stopDist = 3.0;
-                if (this.type === 'SPIRIT') stopDist = 8.0; // Stay ranged
-                if (this.type === 'GOLEM') stopDist = 4.0; // AoE range
+                // Move until in range of the selected move
+                const desiredRange = move.range - 0.5;
+                
+                // If it's a healing spell, we don't need to be near player, just stop
+                if (move.type === 'HEAL') {
+                     this.turnPhase = 'ATTACK_WARN';
+                     this.turnTimer = 0.5;
+                     return false;
+                }
 
-                if (dist > stopDist) {
+                if (dist > desiredRange) {
                     this.mesh.position.add(dir.multiplyScalar(this.speed * dt));
                     if (world) this.mesh.position.y = world.getHeight(this.mesh.position.x, this.mesh.position.z) + this.yOffset;
-                }
-                
-                this.turnTimer -= dt;
-                if (this.turnTimer <= 0) {
+                    
+                    this.turnTimer -= dt;
+                    if (this.turnTimer <= 0) {
+                         // Timeout, just attack anyway from here
+                         this.turnPhase = 'ATTACK_WARN';
+                         this.turnTimer = 0.5;
+                    }
+                } else {
+                    // In range
                     this.turnPhase = 'ATTACK_WARN';
-                    this.turnTimer = (this.type === 'GOLEM') ? 1.5 : 0.5; // Longer telegraph for Golem
+                    this.turnTimer = (move.type === 'AOE') ? 1.0 : 0.5; 
                 }
                 break;
 
             case 'ATTACK_WARN':
-                // Flash Warning
+                // Telegraph
                 const color = (Date.now() % 100 < 50) ? 0xff0000 : 0xffffff;
                 this.mesh.material.color.setHex(color);
                 
@@ -254,72 +339,66 @@ export class Enemy {
                 break;
 
             case 'ATTACK_EXEC':
-                let damage = 0;
+                let damage = this.damage * (move.power || 1.0);
                 let hit = false;
                 
-                if (this.type === 'GOLEM' || this.type === 'MAGMA_GOLEM') {
-                    // AoE Slam - No movement, just radius check
-                    const radius = (this.type === 'MAGMA_GOLEM') ? 8.0 : 6.0;
-                    if (dist < radius) { 
-                        damage = this.damage * 1.5; // Heavy hit
-                        hit = true;
-                    }
-                    // Visual shake
-                    this.mesh.position.y += Math.sin(Date.now() * 0.5) * 0.1;
-                } 
-                else if (this.type === 'SPIRIT' || this.type === 'ICE_SPIRIT' || this.type === 'SERPENT') {
-                    // Ranged zap / Water Spit
-                    const range = (this.type === 'SERPENT') ? 10.0 : 14.0;
-                    if (dist < range) {
-                        damage = this.damage;
-                        hit = true;
-                        
-                        // Visual Lunge for serpent
-                        if (this.type === 'SERPENT') {
-                            this.mesh.position.add(dir.multiplyScalar(5.0 * dt));
-                        }
-                    }
-                } 
-                else {
-                    // Melee Dash (Goblin, Wolf, Slime, etc)
-                    const dashSpeed = this.speed * 4;
+                // Logic based on move type
+                if (move.type === 'MELEE' || move.type === 'DASH') {
+                    // Visual dash
+                    const dashSpeed = this.speed * (move.type === 'DASH' ? 6 : 4);
                     this.mesh.position.add(dir.multiplyScalar(dashSpeed * dt));
                     
-                    // Maintain height logic
-                    if (world) {
-                        if (this.isAquatic) {
-                            this.mesh.position.y = Math.max(world.getHeight(this.mesh.position.x, this.mesh.position.z), 1.0) + this.yOffset;
-                        } else {
-                            this.mesh.position.y = world.getHeight(this.mesh.position.x, this.mesh.position.z) + this.yOffset;
-                        }
-                    }
+                    if (world) this.mesh.position.y = world.getHeight(this.mesh.position.x, this.mesh.position.z) + this.yOffset;
 
                     if (dist < 2.5) {
-                        damage = this.damage;
                         hit = true;
                         // Bounce player
-                        const bounce = dir.clone().multiplyScalar(3.0);
+                        const bounce = dir.clone().multiplyScalar(2.0);
                         player.mesh.position.add(bounce);
                     }
+                }
+                else if (move.type === 'RANGED') {
+                    // Just check range roughly (already checked in move phase)
+                    if (dist < move.range + 2.0) {
+                        // In reality we should spawn a projectile here, 
+                        // but for simplicity in this turn-based logic, we assume hit if in range
+                        // or just delayed hit.
+                        // Let's visual flash the target
+                        hit = true;
+                    }
+                }
+                else if (move.type === 'AOE') {
+                    const radius = move.radius || 5.0;
+                    if (dist < radius) {
+                        hit = true;
+                    }
+                    // Jump/Smash visual
+                    this.mesh.position.y += Math.sin(Date.now()*0.5) * 0.2;
+                }
+                else if (move.type === 'HEAL') {
+                     // Self heal
+                     this.hp = Math.min(this.maxHp, this.hp + (move.power || 10));
+                     // Visual
+                     this.mesh.material.color.setHex(0x00ff00);
                 }
 
                 if (hit && !this.hasHit) {
                     player.takeDamage(damage, this.element);
-                    this.hasHit = true; // Ensure one hit per turn
+                    this.hasHit = true;
                 }
 
                 this.turnTimer -= dt;
                 if (this.turnTimer <= 0) {
                     this.turnPhase = 'RETURN';
                     this.turnTimer = 0.5;
-                    this.hasHit = false; // Reset for next time
+                    this.hasHit = false;
                 }
                 break;
 
             case 'RETURN':
                 resetColor();
-                // Melee units back off
-                if (this.type !== 'GOLEM' && this.type !== 'SPIRIT') {
+                // Back off if Melee
+                if (move.type === 'MELEE' || move.type === 'DASH') {
                     this.mesh.position.sub(dir.multiplyScalar(this.speed * dt));
                     if (world) this.mesh.position.y = world.getHeight(this.mesh.position.x, this.mesh.position.z) + this.yOffset;
                 }
