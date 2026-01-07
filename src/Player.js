@@ -98,29 +98,62 @@ export class Player {
         this.head.add(rightEye);
 
         // -- HAIR --
-        // Bangs
-        const bangsGeo = new THREE.BoxGeometry(0.38, 0.15, 0.1);
-        const bangs = new THREE.Mesh(bangsGeo, hairMat);
-        bangs.position.set(0, 0.15, 0.18);
-        this.head.add(bangs);
+        // 1. Hair Cap (Base layer to prevent bald spots)
+        const capGeo = new THREE.BoxGeometry(0.37, 0.22, 0.37);
+        const hairCap = new THREE.Mesh(capGeo, hairMat);
+        hairCap.position.set(0, 0.1, 0); // Top of head
+        this.head.add(hairCap);
+
+        // 2. Bangs (More detailed)
+        // Center Bangs
+        const bangsCenterGeo = new THREE.BoxGeometry(0.14, 0.18, 0.05);
+        const bangsCenter = new THREE.Mesh(bangsCenterGeo, hairMat);
+        bangsCenter.position.set(0, 0.05, 0.18);
+        this.head.add(bangsCenter);
         
-        // Back Hair (Long)
-        const backHairGeo = new THREE.BoxGeometry(0.4, 0.8, 0.15);
+        // Left Side Bang
+        const bangsSideGeo = new THREE.BoxGeometry(0.12, 0.25, 0.05);
+        const bangsLeft = new THREE.Mesh(bangsSideGeo, hairMat);
+        bangsLeft.position.set(-0.13, 0.0, 0.18);
+        bangsLeft.rotation.z = 0.1;
+        this.head.add(bangsLeft);
+        
+        // Right Side Bang
+        const bangsRight = new THREE.Mesh(bangsSideGeo, hairMat);
+        bangsRight.position.set(0.13, 0.0, 0.18);
+        bangsRight.rotation.z = -0.1;
+        this.head.add(bangsRight);
+
+        // 3. Side Locks (Framing the face)
+        const sideLockGeo = new THREE.BoxGeometry(0.08, 0.45, 0.12);
+        const leftLock = new THREE.Mesh(sideLockGeo, hairMat);
+        leftLock.position.set(-0.19, -0.1, 0.12);
+        this.head.add(leftLock);
+        
+        const rightLock = new THREE.Mesh(sideLockGeo, hairMat);
+        rightLock.position.set(0.19, -0.1, 0.12);
+        this.head.add(rightLock);
+
+        // 4. Back Hair (Fuller)
+        const backHairGeo = new THREE.BoxGeometry(0.42, 0.9, 0.2);
         const backHair = new THREE.Mesh(backHairGeo, hairMat);
-        backHair.position.set(0, -0.1, -0.15);
-        backHair.rotation.x = 0.1; // Flare out slightly
+        backHair.position.set(0, -0.2, -0.12);
+        backHair.rotation.x = 0.15; 
         this.head.add(backHair);
 
-        // Side tails
-        const tailGeo = new THREE.BoxGeometry(0.1, 0.6, 0.1);
+        // 5. Twin Tails (More dynamic)
+        const tailGeo = new THREE.BoxGeometry(0.12, 0.7, 0.12);
+        
         const leftTail = new THREE.Mesh(tailGeo, hairMat);
-        leftTail.position.set(-0.22, -0.1, 0);
-        leftTail.rotation.z = 0.2;
+        leftTail.position.set(-0.28, 0.1, -0.05);
+        leftTail.rotation.z = 0.3;
+        leftTail.rotation.x = 0.1;
         this.head.add(leftTail);
         
         const rightTail = new THREE.Mesh(tailGeo, hairMat);
-        rightTail.position.set(0.22, -0.1, 0);
-        rightTail.rotation.z = -0.2;
+        rightTail.position.set(0.28, 0.1, -0.05);
+        rightTail.rotation.z = -0.3;
+        rightTail.rotation.x = 0.1;
         this.head.add(rightTail);
 
         // -- ARMS --
