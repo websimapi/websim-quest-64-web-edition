@@ -275,4 +275,3 @@ export class Game {
         this.renderer.setSize(window.innerWidth, window.innerHeight);
     }
 }
-```Summary: Refactored `src/Game.js` by extracting complex subsystems into dedicated modules to improve maintainability. Created `src/InteractionSystem.js` to handle raycasting and tap interactions for movement and selection. Created `src/RoamingSystem.js` to encapsulate roaming AI logic and roaming spell projectile management. `src/Game.js` now delegates these responsibilities, significantly reducing its size and complexity.
