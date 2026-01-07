@@ -61,32 +61,28 @@ export class InputManager {
     }
 
     setupSpellButtons() {
-        const spellMenu = document.getElementById('spell-menu');
-        const actionBtn = document.getElementById('action-btn');
-        if (!spellMenu || !actionBtn) return;
+        // Delegate for dynamic spell buttons
+        const container = document.getElementById('spell-controls');
+        if (!container) return;
 
-        actionBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            if (this.game.gameState === 'ROAMING' || this.game.gameState === 'BATTLE') {
-                spellMenu.classList.toggle('active');
-            }
-        });
-
-        document.querySelectorAll('.element-btn').forEach(btn => {
-            btn.addEventListener('click', (e) => {
+        container.addEventListener('click', (e) => {
+            const btn = e.target.closest('.spell-btn');
+            if (btn && btn.dataset.el) {
                 e.stopPropagation();
-                const el = btn.dataset.el;
-                if (el) this.game.handleSpellCast(el);
-                spellMenu.classList.remove('active');
-            });
-        });
-
-        // Close menu if clicking outside
-        document.addEventListener('click', (e) => {
-            if (!e.target.closest('#spell-menu') && !e.target.closest('#action-btn')) {
-                spellMenu.classList.remove('active');
+                this.game.handleSpellCast(btn.dataset.el);
             }
         });
+        
+        // Allow touch interaction specifically
+        container.addEventListener('touchstart', (e) => {
+             const btn = e.target.closest('.spell-btn');
+             if (btn && btn.dataset.el) {
+                 e.stopPropagation();
+                 // Prevent default click emulation to speed up reaction
+                 e.preventDefault(); 
+                 this.game.handleSpellCast(btn.dataset.el);
+             }
+        }, { passive: false });
     }
 
     setupPointer() {

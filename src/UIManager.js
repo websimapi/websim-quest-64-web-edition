@@ -20,12 +20,56 @@ export class UIManager {
         document.body.appendChild(this.locationDisplay);
 
         this.messageTimer = null;
+        this.lastSpiritState = "";
     }
 
     update(gameState, combatSystem) {
         this.updateLocation();
         this.updateStats();
         this.updateBattleHud(gameState, combatSystem);
+        this.updateSpellDeck();
+    }
+
+    updateSpellDeck() {
+        if (!this.player) return;
+        
+        // Check if update needed
+        const currentState = JSON.stringify(this.player.spirits);
+        if (currentState === this.lastSpiritState) return;
+        this.lastSpiritState = currentState;
+
+        // Sort elements by level desc
+        const entries = Object.entries(this.player.spirits).map(([key, val]) => ({ key, val }));
+        // Sort: Value desc, then Alphabetical desc (Wind > Water > Fire > Earth) just to be deterministic
+        entries.sort((a,b) => {
+            if (b.val !== a.val) return b.val - a.val;
+            return a.key.localeCompare(b.key);
+        });
+
+        const main = entries[0];
+        const subs = entries.slice(1);
+
+        this.setSpellBtn('#spell-main', main.key);
+        this.setSpellBtn('#spell-sub-1', subs[0].key);
+        this.setSpellBtn('#spell-sub-2', subs[1].key);
+        this.setSpellBtn('#spell-sub-3', subs[2].key);
+    }
+
+    setSpellBtn(selector, element) {
+        const btn = document.querySelector(selector);
+        if (!btn) return;
+        
+        btn.dataset.el = element;
+        btn.innerText = element.toUpperCase();
+        
+        const colors = {
+            fire: '#d32f2f',
+            water: '#1976d2',
+            earth: '#388e3c',
+            wind: '#fbc02d'
+        };
+        btn.style.backgroundColor = colors[element];
+        btn.style.color = element === 'wind' ? 'black' : 'white';
     }
 
     updateLocation() {
