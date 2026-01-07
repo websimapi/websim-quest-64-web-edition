@@ -189,6 +189,14 @@ export class SpellProjectile {
         // Store spawn position for range checks
         this.spawnPos = this.position.clone();
 
+        // Calculate terrain height offset for terrain-hugging projectiles
+        if (this.world) {
+            const h = this.world.getHeight(this.position.x, this.position.z);
+            this.heightOffset = Math.max(0.5, this.position.y - h);
+        } else {
+            this.heightOffset = 1.0;
+        }
+
         // Ground Target Logic: If it's a pillar spell, we snap to target or ground instantly
         if (config.type === 'ground_target') {
             this.life = 1.0; // Duration of visual
@@ -315,8 +323,6 @@ export class SpellProjectile {
         else {
             // Standard Projectile
             const startPos = this.mesh.position.clone();
-            const move = this.velocity.clone().multiplyScalar(dt);
-            const nextPos = startPos.clone().add(move);
             
             // Homing Logic for Wind Tornado
             if (this.config.type === 'homing') {
@@ -336,13 +342,40 @@ export class SpellProjectile {
                 }
             }
 
+            // Determine next position with Terrain Hugging support
+            let nextPos, move;
+
+            if (this.config.type !== 'homing' && this.world) {
+                // Terrain Hugging: Move XZ by velocity, force Y to terrain + offset
+                const moveX = this.velocity.x * dt;
+                const moveZ = this.velocity.z * dt;
+                
+                // Calculate next XZ
+                const nextX = startPos.x + moveX;
+                const nextZ = startPos.z + moveZ;
+                
+                // Snap Y
+                const groundH = this.world.getHeight(nextX, nextZ);
+                // Safety fallback for heightOffset
+                const offset = (this.heightOffset !== undefined) ? this.heightOffset : 1.5;
+                
+                nextPos = new THREE.Vector3(nextX, groundH + offset, nextZ);
+                
+                // Reconstruct move vector for collisions
+                move = new THREE.Vector3().subVectors(nextPos, startPos);
+            } else {
+                // Free Flight (Homing or no world)
+                move = this.velocity.clone().multiplyScalar(dt);
+                nextPos = startPos.clone().add(move);
+            }
+
             // Move
             this.mesh.position.copy(nextPos);
             this.mesh.rotation.z += dt * 10;
             this.mesh.rotation.x += dt * 5;
 
-            // Terrain Collision
-            if (this.world) {
+            // Terrain Collision (Only check if we aren't hugging)
+            if (this.config.type === 'homing' && this.world) {
                 const h = this.world.getHeight(this.mesh.position.x, this.mesh.position.z);
                 if (this.mesh.position.y < h) {
                     this.dispose();
