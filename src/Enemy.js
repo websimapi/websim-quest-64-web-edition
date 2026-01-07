@@ -159,8 +159,21 @@ export class Enemy {
     update(dt, playerPos, world) {
         if (!this.mesh) return;
 
+        // Ensure Y is correct
+        if (world) {
+            const h = world.getHeight(this.mesh.position.x, this.mesh.position.z);
+            // Smooth lerp for visual niceness
+            const targetY = h + this.yOffset;
+            
+            if (this.type === 'SPIRIT' || this.type === 'ICE_SPIRIT') {
+                 // Flying units bob
+                 this.mesh.position.y = targetY + Math.sin(Date.now() * 0.003) * 0.5;
+            } else {
+                 this.mesh.position.y = THREE.MathUtils.lerp(this.mesh.position.y, targetY, dt * 10);
+            }
+        }
+
         if (this.state === 'BATTLE') {
-            // Battle Logic now delegated to battleUpdate called by CombatSystem
             return;
         }
 
@@ -202,16 +215,6 @@ export class Enemy {
             }
         }
 
-        // Terrain height
-        if (world) {
-            const h = world.getHeight(this.mesh.position.x, this.mesh.position.z);
-            this.mesh.position.y = h + this.yOffset;
-            
-            // Bobbing for spirits
-            if (this.type === 'SPIRIT') {
-                this.mesh.position.y += Math.sin(Date.now() * 0.003) * 0.2;
-            }
-        }
     }
 
     takeDamage(amount) {

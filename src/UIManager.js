@@ -13,13 +13,31 @@ export class UIManager {
         this.moveBarFill = document.getElementById('move-bar-fill');
         this.messageBox = document.getElementById('message-box');
         this.levelupOverlay = document.getElementById('levelup-overlay');
+        
+        // Add Location Indicator
+        this.locationDisplay = document.createElement('div');
+        this.locationDisplay.style.cssText = "position:absolute; top:20px; width:100%; text-align:center; color:white; font-size:14px; text-shadow:2px 2px 0 #000; pointer-events:none;";
+        document.body.appendChild(this.locationDisplay);
 
         this.messageTimer = null;
     }
 
     update(gameState, combatSystem) {
+        this.updateLocation();
         this.updateStats();
         this.updateBattleHud(gameState, combatSystem);
+    }
+
+    updateLocation() {
+        if (this.player && this.combatSystem && this.combatSystem.world) {
+             const name = this.combatSystem.world.getRegionName(this.player.mesh.position.x, this.player.mesh.position.z);
+             if (this.locationDisplay.innerText !== name) {
+                 this.locationDisplay.innerText = name;
+                 this.locationDisplay.style.animation = 'none';
+                 this.locationDisplay.offsetHeight; /* trigger reflow */
+                 this.locationDisplay.style.animation = 'fadeIn 2s';
+             }
+        }
     }
 
     updateStats() {

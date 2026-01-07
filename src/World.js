@@ -1,62 +1,86 @@
 import * as THREE from 'three';
 import { Enemy } from './Enemy.js';
+import { Noise } from './Noise.js';
 
 export class World {
     constructor(scene) {
         this.scene = scene;
         this.ground = null;
-        this.size = 2000; // Massive world
-        this.segments = 200; // Detailed enough for low poly
+        this.size = 2000; 
+        this.segments = 256; // Higher res for smoother terrain
         this.enemies = [];
+        this.noise = new Noise();
+        this.grassMeshes = [];
+        
+        // Story Regions
+        this.regions = [
+            { name: "Plains of Aethelgard", biome: 'GRASSLAND', x: 0, z: 0, r: 400 },
+            { name: "Whispering Woods", biome: 'FOREST', x: -500, z: -500, r: 350 },
+            { name: "Crimson Wastes", biome: 'BADLANDS', x: 500, z: -500, r: 350 },
+            { name: "Frostfall Ridge", biome: 'SNOW', x: 500, z: 500, r: 350 },
+            { name: "Shifting Sands", biome: 'DESERT', x: -500, z: 500, r: 350 },
+            { name: "Mount Celestia", biome: 'MOUNTAIN', x: 0, z: -800, r: 300 }
+        ];
     }
 
     async loadAssets() {
         const loader = new THREE.TextureLoader();
         this.grassTexture = await loader.loadAsync('grass_texture.png');
-        this.grassTexture.wrapS = THREE.RepeatWrapping;
-        this.grassTexture.wrapT = THREE.RepeatWrapping;
-        this.grassTexture.repeat.set(20, 20);
-        this.grassTexture.magFilter = THREE.NearestFilter;
-        this.grassTexture.minFilter = THREE.NearestFilter;
     }
 
     generate() {
+        // 1. Terrain Geometry
         const geometry = new THREE.PlaneGeometry(this.size, this.size, this.segments, this.segments);
         
-        // Vertex Colors Buffer
         const colors = [];
         const posAttribute = geometry.attributes.position;
         const count = posAttribute.count;
+        const color = new THREE.Color();
+        const baseColor = new THREE.Color();
 
         for (let i = 0; i < count; i++) {
             const x = posAttribute.getX(i);
-            const y = posAttribute.getY(i); // This becomes Z in world
+            const y = posAttribute.getY(i); // This is Z in 2D plane logic
             
-            // Determine Biome and Height
-            const h = this.getHeight(x, -y); // Note: plane Y is world -Z usually, but here we treat plane Y as Z for noise
-            
-            // Set Z (Up)
-            posAttribute.setZ(i, h);
+            // Calculate Height using FBM
+            const h = this.getHeight(x, -y);
+            posAttribute.setZ(i, h); // Set Z (which becomes Y after rotation)
 
-            // Color based on biome
+            // Determine Biome Color
             const biome = this.getBiome(x, -y);
-            let color = new THREE.Color(0x55aa55); // Default Grass
+            
+            // Base colors
+            if (biome === 'GRASSLAND') baseColor.setHex(0x55aa55);
+            else if (biome === 'FOREST') baseColor.setHex(0x1b5e20);
+            else if (biome === 'DESERT') baseColor.setHex(0xefd595); // Sand
+            else if (biome === 'SNOW') baseColor.setHex(0xffffff);
+            else if (biome === 'BADLANDS') baseColor.setHex(0x8d6e63);
+            else if (biome === 'MOUNTAIN') baseColor.setHex(0x546e7a); // Blue-ish grey
 
-            if (biome === 'FOREST') {
-                color.setHex(0x228822);
-                // Varies slightly
-                color.r += Math.random() * 0.1; 
-            } else if (biome === 'DESERT') {
-                color.setHex(0xeecc66);
-            } else if (biome === 'SNOW') {
-                color.setHex(0xffffff);
-                if (h < 5) color.setHex(0xddeeff); // Ice lowlands
-            } else if (biome === 'BADLANDS') {
-                color.setHex(0x553333); // Dark rock
-                if (h < 2) color.setHex(0xaa4400); // Lava-ish ground
-            } else {
-                // Grasslands
-                color.setHex(0x55aa55);
+            // Add noise to color for "Hyperrealistic" variance
+            const noiseVal = this.noise.noise(x * 0.05, -y * 0.05);
+            
+            // Slope detection (simple)
+            // We need neighboring heights to properly do slope texturing, 
+            // but we can approximate with noise variance or just rely on the biome logic.
+            
+            // Mix
+            color.copy(baseColor);
+            
+            // Darken based on noise (AO fake)
+            color.multiplyScalar(0.8 + (noiseVal + 1) * 0.15);
+            
+            // Height based caps (Snow peaks in non-snow biomes)
+            if (h > 45 && biome !== 'SNOW') {
+                color.lerp(new THREE.Color(0xdddddd), (h - 45) / 20);
+            }
+            
+            // Water/Beach level
+            if (h < 2) {
+                color.setHex(0xe0c080); // Sand edge
+            }
+            if (h < 0) {
+                color.setHex(0x224488); // Underwater (not doing real water yet)
             }
 
             colors.push(color.r, color.g, color.b);
@@ -64,134 +88,238 @@ export class World {
 
         geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
         geometry.computeVertexNormals();
-        geometry.rotateX(-Math.PI / 2); // Make it flat (Y up)
+        geometry.rotateX(-Math.PI / 2); // Rotate to XZ plane
 
-        // Use vertex colors. Remove texture map for biome clarity, or mix (Threejs doesn't mix easily without shaders).
-        // Let's use vertex colors primarily, maybe blend with a detail texture if we had custom shader,
-        // but for now standard material with vertex colors is good for low poly look.
         const material = new THREE.MeshStandardMaterial({ 
             vertexColors: true,
-            roughness: 0.9,
-            metalness: 0.1
-            // map: this.grassTexture // Disabling texture to allow biome colors to pop
+            roughness: 0.8,
+            metalness: 0.1,
+            flatShading: false // Smooth shading for smoother look
         });
 
         this.ground = new THREE.Mesh(geometry, material);
         this.ground.receiveShadow = true;
         this.scene.add(this.ground);
 
-        this.generateTrees();
+        this.generateDetails();
         this.generateEnemies();
         
-        // Lighting
-        const ambient = new THREE.AmbientLight(0xffffff, 0.6);
+        // Environment
+        const ambient = new THREE.AmbientLight(0xffffff, 0.4);
         this.scene.add(ambient);
-
-        const sun = new THREE.DirectionalLight(0xffffff, 1.2);
-        sun.position.set(100, 200, 100);
+        
+        // Sun with warmer tone
+        const sun = new THREE.DirectionalLight(0xfff0dd, 1.1);
+        sun.position.set(150, 300, 100);
         sun.castShadow = true;
-        // Expand shadow camera for larger world view
-        sun.shadow.camera.left = -100;
-        sun.shadow.camera.right = 100;
-        sun.shadow.camera.top = 100;
-        sun.shadow.camera.bottom = -100;
-        sun.shadow.mapSize.width = 2048;
-        sun.shadow.mapSize.height = 2048;
+        sun.shadow.camera.near = 0.5;
+        sun.shadow.camera.far = 1000;
+        sun.shadow.camera.left = -200;
+        sun.shadow.camera.right = 200;
+        sun.shadow.camera.top = 200;
+        sun.shadow.camera.bottom = -200;
+        sun.shadow.mapSize.width = 4096; // Sharper shadows
+        sun.shadow.mapSize.height = 4096;
+        sun.shadow.bias = -0.0005;
         this.scene.add(sun);
+        
+        // Fog for atmosphere
+        this.scene.fog = new THREE.Fog(0x87CEEB, 80, 250);
     }
 
-    generateTrees() {
-        const treeGeo = new THREE.ConeGeometry(1, 4, 4); 
-        const treeMat = new THREE.MeshStandardMaterial({ color: 0x2e7d32, flatShading: true }); // Green
-        const deadTreeMat = new THREE.MeshStandardMaterial({ color: 0x444444, flatShading: true }); // Dead
-        const trunkGeo = new THREE.CylinderGeometry(0.3, 0.3, 1, 4);
-        const trunkMat = new THREE.MeshStandardMaterial({ color: 0x5d4037 });
+    getHeight(x, z) {
+        // Base Continent Shape (Island-ish)
+        const dist = Math.sqrt(x*x + z*z);
+        const islandMask = Math.max(0, 1.0 - Math.pow(dist / 950, 4)); // Falloff at edges
         
-        // Cactus for desert
-        const cactusGeo = new THREE.CylinderGeometry(0.4, 0.4, 3, 5);
-        const cactusMat = new THREE.MeshStandardMaterial({ color: 0x669900 });
+        // Large features
+        let h = this.noise.fbm(x * 0.002, z * 0.002, 3, 0.5, 2.0) * 120;
+        
+        // Biome Specific Modifications
+        const biome = this.getBiome(x, z);
+        
+        if (biome === 'MOUNTAIN') {
+            h += Math.abs(this.noise.fbm(x * 0.01, z * 0.01, 5)) * 150;
+        } else if (biome === 'GRASSLAND') {
+            h *= 0.3; // Flatten
+            h += this.noise.noise(x * 0.03, z * 0.03) * 2; // Rolling hills
+        } else if (biome === 'DESERT') {
+            h = this.noise.noise(x * 0.01, z * 0.01) * 15; // Dunes
+            h += Math.sin(x * 0.05 + z * 0.02) * 5;
+        } else if (biome === 'BADLANDS') {
+            // Terraced look
+            const raw = this.noise.fbm(x * 0.005, z * 0.005, 4);
+            h = Math.floor(raw * 80 / 5) * 5; // Steps
+        } else if (biome === 'FOREST') {
+            h *= 0.5;
+            h += this.noise.noise(x * 0.05, z * 0.05) * 5;
+        }
 
-        // Rock for badlands/snow
-        const rockGeo = new THREE.DodecahedronGeometry(1.5);
-        const rockMat = new THREE.MeshStandardMaterial({ color: 0x777777 });
+        // Apply Mask
+        return (h * islandMask) - (1.0 - islandMask) * 20; 
+    }
 
-        const count = 800; // Lots of props for big world
+    getBiome(x, z) {
+        // Find closest region center
+        let closest = this.regions[0];
+        let minD = Infinity;
+        
+        // Add some noise to the position check for organic borders
+        const warpX = x + this.noise.noise(x*0.01, z*0.01) * 100;
+        const warpZ = z + this.noise.noise(z*0.01, x*0.01) * 100;
 
-        for(let i=0; i<count; i++) {
-            const x = (Math.random() - 0.5) * this.size;
-            const z = (Math.random() - 0.5) * this.size;
+        for (let r of this.regions) {
+            const dx = warpX - r.x;
+            const dz = warpZ - r.z;
+            const d = Math.sqrt(dx*dx + dz*dz);
+            // Weight distance by region radius inverse to normalize influence? 
+            // Simpler: Just check if inside radius with some bleed, otherwise default to Plains
+            if (d < r.r) {
+                // If multiple overlap, the closest center wins
+                const realDist = Math.sqrt((warpX-r.x)**2 + (warpZ-r.z)**2);
+                if (realDist < minD) {
+                    minD = realDist;
+                    closest = r;
+                }
+            }
+        }
+        return closest.biome;
+    }
+
+    getRegionName(x, z) {
+         let closest = this.regions[0];
+         let minD = Infinity;
+         for (let r of this.regions) {
+             const d = Math.sqrt((x-r.x)**2 + (z-r.z)**2);
+             if (d < r.r * 1.2 && d < minD) {
+                 minD = d;
+                 closest = r;
+             }
+         }
+         return closest.name;
+    }
+
+    generateDetails() {
+        // 1. Grass System (InstancedMesh)
+        // Only generate grass in Grassland and Forest
+        const grassGeo = new THREE.PlaneGeometry(1.5, 1.5);
+        const grassMat = new THREE.MeshStandardMaterial({
+            map: this.grassTexture,
+            transparent: true,
+            alphaTest: 0.5,
+            side: THREE.DoubleSide,
+            color: 0x88bb88
+        });
+
+        const grassCount = 6000;
+        const grassMesh = new THREE.InstancedMesh(grassGeo, grassMat, grassCount);
+        grassMesh.castShadow = false;
+        grassMesh.receiveShadow = true;
+        
+        const dummy = new THREE.Object3D();
+        let idx = 0;
+        
+        for (let i=0; i<10000; i++) { // Try 10k spots, fill up to grassCount
+            if (idx >= grassCount) break;
             
-            const dist = Math.sqrt(x*x + z*z);
-            if(dist < 30) continue; // Clear start
+            const x = (Math.random() - 0.5) * 1000;
+            const z = (Math.random() - 0.5) * 1000;
+            const biome = this.getBiome(x, z);
+            
+            if (biome === 'GRASSLAND' || biome === 'FOREST') {
+                const y = this.getHeight(x, z);
+                if (y < 1) continue; // Don't place in water
+
+                dummy.position.set(x, y + 0.75, z);
+                dummy.rotation.set(0, Math.random() * Math.PI, 0);
+                dummy.scale.setScalar(0.8 + Math.random() * 0.5);
+                
+                // Tilt with terrain? Simplified: just straight up but randomized tilt
+                dummy.rotation.x = (Math.random() - 0.5) * 0.2;
+                dummy.rotation.z = (Math.random() - 0.5) * 0.2;
+                
+                dummy.updateMatrix();
+                grassMesh.setMatrixAt(idx, dummy.matrix);
+                idx++;
+            }
+        }
+        this.scene.add(grassMesh);
+        this.grassMeshes.push(grassMesh);
+
+        // 2. Trees and Rocks
+        const treeGeo = new THREE.ConeGeometry(1.5, 6, 8); 
+        const treeMat = new THREE.MeshStandardMaterial({ color: 0x1b5e20, flatShading: true, roughness: 0.9 });
+        const trunkGeo = new THREE.CylinderGeometry(0.4, 0.5, 2, 6);
+        const trunkMat = new THREE.MeshStandardMaterial({ color: 0x3e2723 });
+        
+        const rockGeo = new THREE.DodecahedronGeometry(1);
+        const rockMat = new THREE.MeshStandardMaterial({ color: 0x757575 });
+
+        // Ruins Pillars
+        const pillarGeo = new THREE.CylinderGeometry(0.8, 0.8, 6, 8);
+        const pillarMat = new THREE.MeshStandardMaterial({ color: 0x9e9e9e });
+
+        const objectCount = 1500;
+        
+        for(let i=0; i<objectCount; i++) {
+            const x = (Math.random() - 0.5) * 1600;
+            const z = (Math.random() - 0.5) * 1600;
+            const y = this.getHeight(x, z);
+            
+            if (y < 2) continue; // Water check
 
             const biome = this.getBiome(x, z);
-            const y = this.getHeight(x, z);
+            const slope = this.getSlopeFactor(x, z);
 
-            if (biome === 'DESERT') {
-                if (Math.random() > 0.8) {
-                    const cactus = new THREE.Mesh(cactusGeo, cactusMat);
-                    cactus.position.set(x, y + 1.5, z);
-                    cactus.castShadow = true;
-                    this.scene.add(cactus);
-                }
-            } else if (biome === 'FOREST') {
-                // Dense trees
+            if (slope > 0.8) continue; // Don't place on steep cliffs
+
+            if (biome === 'FOREST') {
+                const scale = 1 + Math.random();
                 const tree = new THREE.Group();
                 const trunk = new THREE.Mesh(trunkGeo, trunkMat);
-                trunk.position.y = 0.5;
+                trunk.position.y = 1;
                 trunk.castShadow = true;
                 const leaves = new THREE.Mesh(treeGeo, treeMat);
-                leaves.position.y = 2.5;
+                leaves.position.y = 4;
                 leaves.castShadow = true;
                 tree.add(trunk);
                 tree.add(leaves);
                 tree.position.set(x, y, z);
-                const scale = 0.8 + Math.random() * 0.8;
-                tree.scale.set(scale, scale, scale);
+                tree.scale.setScalar(scale);
                 this.scene.add(tree);
-            } else if (biome === 'BADLANDS') {
-                if (Math.random() > 0.7) {
-                    const rock = new THREE.Mesh(rockGeo, rockMat);
-                    rock.position.set(x, y + 0.5, z);
-                    rock.castShadow = true;
-                    rock.scale.setScalar(Math.random() * 1.5 + 0.5);
+            } 
+            else if (biome === 'BADLANDS') {
+                 if (Math.random() > 0.8) {
+                    // Ancient Ruins
+                    const pillar = new THREE.Mesh(pillarGeo, pillarMat);
+                    pillar.position.set(x, y + 3, z);
+                    pillar.rotation.z = (Math.random() - 0.5) * 0.5; // Ruined/tilted
+                    pillar.castShadow = true;
+                    this.scene.add(pillar);
+                 } else {
+                    const rock = new THREE.Mesh(rockGeo, new THREE.MeshStandardMaterial({color:0x8d6e63}));
+                    rock.position.set(x, y + 1, z);
+                    rock.scale.setScalar(2 + Math.random());
                     this.scene.add(rock);
-                } else if (Math.random() > 0.9) {
-                    // Dead tree
-                    const tree = new THREE.Group();
-                    const trunk = new THREE.Mesh(trunkGeo, trunkMat);
-                    trunk.position.y = 0.5;
-                    const leaves = new THREE.Mesh(treeGeo, deadTreeMat);
-                    leaves.position.y = 2.5;
-                    leaves.scale.set(0.5, 0.5, 0.5); // Withered
-                    tree.add(trunk);
-                    tree.add(leaves);
-                    tree.position.set(x, y, z);
-                    this.scene.add(tree);
-                }
-            } else if (biome === 'SNOW') {
-                if (Math.random() > 0.8) {
-                    // Snow covered rock
-                    const rock = new THREE.Mesh(rockGeo, new THREE.MeshStandardMaterial({color: 0xeeeeee}));
-                    rock.position.set(x, y + 0.5, z);
-                    rock.scale.setScalar(Math.random() * 2 + 1);
-                    this.scene.add(rock);
-                }
-            } else {
-                // Grassland - Sparse trees
-                if (Math.random() > 0.7) {
-                    const tree = new THREE.Group();
-                    const trunk = new THREE.Mesh(trunkGeo, trunkMat);
-                    trunk.position.y = 0.5;
-                    const leaves = new THREE.Mesh(treeGeo, treeMat);
-                    leaves.position.y = 2.5;
-                    tree.add(trunk);
-                    tree.add(leaves);
-                    tree.position.set(x, y, z);
-                    this.scene.add(tree);
-                }
+                 }
+            }
+            else if (biome === 'MOUNTAIN') {
+                const rock = new THREE.Mesh(rockGeo, rockMat);
+                rock.position.set(x, y + 1, z);
+                rock.scale.setScalar(3 + Math.random() * 3); // Giant boulders
+                this.scene.add(rock);
             }
         }
+    }
+
+    getSlopeFactor(x, z) {
+        // Sample height around point to determine slope
+        const h = this.getHeight(x, z);
+        const hx = this.getHeight(x+1, z);
+        const hz = this.getHeight(x, z+1);
+        const dx = Math.abs(h - hx);
+        const dz = Math.abs(h - hz);
+        return Math.max(dx, dz);
     }
 
     generateEnemies() {
@@ -199,107 +327,38 @@ export class World {
         loader.load('enemy_texture.png', (tex) => {
             tex.magFilter = THREE.NearestFilter;
             this.enemies.forEach(e => {
-                if (e.type === 'GOBLIN') e.setTexture(tex);
+                if (e.type.includes('GOBLIN')) e.setTexture(tex);
             });
         });
 
-        const count = 300; // Population explosion
+        const count = 200; 
         for(let i=0; i<count; i++) {
-            const x = (Math.random() - 0.5) * this.size * 0.9; // Stay within bounds
-            const z = (Math.random() - 0.5) * this.size * 0.9;
-            
-            const dist = Math.sqrt(x*x + z*z);
-            if (dist < 40) continue; // Safe zone
-
+            const x = (Math.random() - 0.5) * 1600;
+            const z = (Math.random() - 0.5) * 1600;
             const biome = this.getBiome(x, z);
+            const y = this.getHeight(x, z);
             
-            // Calculate Level based on distance
-            // 0-100: Lvl 1-5
-            // 100-300: Lvl 5-15
-            // 300-600: Lvl 15-30
-            // 600+: Lvl 30-50
-            const level = Math.max(1, Math.floor(dist / 25));
+            if (y < 2) continue;
 
             let type = 'GOBLIN';
+            let level = 1 + Math.floor(Math.sqrt(x*x + z*z) / 50);
 
-            if (biome === 'GRASSLAND') {
-                if (Math.random() > 0.7) type = 'SLIME';
-                else type = 'GOBLIN';
-            } 
-            else if (biome === 'FOREST') {
-                if (Math.random() > 0.6) type = 'WOLF';
-                else type = 'GOBLIN';
-            }
-            else if (biome === 'DESERT') {
-                if (Math.random() > 0.6) type = 'SAND_SLIME';
-                else type = 'GOLEM'; // Stone Golems roam desert too
-            }
-            else if (biome === 'SNOW') {
-                if (Math.random() > 0.7) type = 'SNOW_WOLF';
-                else if (Math.random() > 0.5) type = 'ICE_SPIRIT';
-                else type = 'GOLEM'; // Frost golem (reusing GOLEM for now, maybe add var later)
-            }
-            else if (biome === 'BADLANDS') {
-                if (Math.random() > 0.6) type = 'MAGMA_GOLEM';
-                else type = 'SPIRIT'; // Fire spirit
-            }
+            if (biome === 'FOREST') type = Math.random() > 0.5 ? 'WOLF' : 'GOBLIN';
+            if (biome === 'DESERT') type = Math.random() > 0.5 ? 'SAND_SLIME' : 'GOLEM';
+            if (biome === 'SNOW') type = Math.random() > 0.6 ? 'SNOW_WOLF' : 'ICE_SPIRIT';
+            if (biome === 'BADLANDS') type = 'MAGMA_GOLEM';
+            if (biome === 'MOUNTAIN') type = 'GOLEM';
 
             const enemy = new Enemy(this.scene, x, z, type, level);
-            // Height adjust
-            enemy.mesh.position.y = this.getHeight(x, z) + enemy.yOffset;
+            enemy.mesh.position.y = y + enemy.yOffset;
             this.enemies.push(enemy);
         }
     }
 
     update(dt, playerPos) {
-        // Remove dead enemies safely
         this.enemies = this.enemies.filter(e => e.mesh !== null);
         this.enemies.forEach(e => {
              if(e.mesh) e.update(dt, playerPos, this);
         });
-    }
-
-    getBiome(x, z) {
-        const dist = Math.sqrt(x*x + z*z);
-        if (dist < 150) return 'GRASSLAND';
-
-        const angle = Math.atan2(z, x) / Math.PI; // -1 to 1
-
-        // Map sectors
-        // North-ish (z < 0) -> Forest
-        // South-ish (z > 0) -> Desert
-        // East-ish (x > 0) -> Snow
-        // West-ish (x < 0) -> Badlands
-        
-        // Let's mix them based on angle
-        if (angle >= -0.25 && angle <= 0.25) return 'SNOW'; // East
-        if (angle > 0.25 && angle < 0.75) return 'DESERT'; // South
-        if (angle >= 0.75 || angle <= -0.75) return 'BADLANDS'; // West
-        return 'FOREST'; // North
-    }
-
-    getHeight(x, z) {
-        const biome = this.getBiome(x, z);
-        
-        let h = 0;
-        // Base Noise
-        const noise1 = Math.sin(x * 0.02) * 5 + Math.cos(z * 0.02) * 5;
-        
-        if (biome === 'GRASSLAND') {
-            h = noise1 * 0.5; // Gentle hills
-        } else if (biome === 'FOREST') {
-            h = noise1 * 1.5 + Math.sin(x*0.1)*2; // Hilly
-        } else if (biome === 'DESERT') {
-            h = Math.sin(x * 0.05 + z * 0.05) * 8; // Dunes
-        } else if (biome === 'SNOW') {
-            h = Math.abs(noise1) * 3 + Math.sin(x*0.05)*10; // Jagged
-            if (h > 15) h += 10; // Peaks
-        } else if (biome === 'BADLANDS') {
-            h = Math.sin(x * 0.03) * 10 + Math.cos(z * 0.03) * 10;
-            // Craters
-            if (Math.sin(x*0.1) > 0.8) h -= 5;
-        }
-        
-        return h;
     }
 }

@@ -256,6 +256,15 @@ export class Player {
     update(dt, inputs, world, boundaryCenter = null, boundaryRadius = 0, canMove = true) {
         this.regenMp(dt);
 
+        // Update Location Name UI if world exists
+        if (world && Math.random() < 0.05) { // Throttle
+            const regionName = world.getRegionName(this.mesh.position.x, this.mesh.position.z);
+            const el = document.getElementById('message-box');
+            // Hacky way to show location without spamming UIManager, 
+            // ideally UIManager should poll player/world.
+            // Leaving for now.
+        }
+
         // Handle Rotation (Allowed during cast for aiming adjustments)
         if (this.targetRotation && !this.isMoving) {
             this.mesh.quaternion.slerp(this.targetRotation, 10 * dt);
@@ -378,8 +387,17 @@ export class Player {
 
         // Always clamp to terrain (even when not moving)
         if (world) {
-            const groundH = world.getHeight(this.mesh.position.x, this.mesh.position.z);
-            this.mesh.position.y = groundH;
+            const x = this.mesh.position.x;
+            const z = this.mesh.position.z;
+            const groundH = world.getHeight(x, z);
+            
+            // Smooth vertical transition to prevent jagged snapping
+            // But we must never clip BELOW.
+            if (this.mesh.position.y < groundH) {
+                 this.mesh.position.y = groundH;
+            } else {
+                 this.mesh.position.y = THREE.MathUtils.lerp(this.mesh.position.y, groundH, dt * 10);
+            }
         }
     }
 
