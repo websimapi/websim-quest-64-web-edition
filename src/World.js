@@ -298,27 +298,47 @@ export class World {
             });
         });
 
-        const count = 200; 
+        const count = 250; 
         for(let i=0; i<count; i++) {
             const x = (Math.random() - 0.5) * 1600;
             const z = (Math.random() - 0.5) * 1600;
             const biome = this.getBiome(x, z);
             const y = this.getHeight(x, z);
+            const level = 1 + Math.floor(Math.sqrt(x*x + z*z) / 50);
             
-            if (y < 2) continue;
+            let type = null;
+            const isWater = y < 1.0;
+            
+            if (isWater) {
+                // Water Spawns
+                // Only spawn if deep enough to not clip ground instantly
+                if (y < 0.5) {
+                    if (Math.random() > 0.6) {
+                        type = Math.random() > 0.5 ? 'WATER_SLIME' : 'SERPENT';
+                    }
+                }
+            } else {
+                // Land Spawns - Strict check to ensure not spawning on beaches/water edge for Golems
+                const isSafeLand = y > 2.5;
 
-            let type = 'GOBLIN';
-            let level = 1 + Math.floor(Math.sqrt(x*x + z*z) / 50);
+                if (biome === 'FOREST' && isSafeLand) type = Math.random() > 0.5 ? 'WOLF' : 'GOBLIN';
+                else if (biome === 'DESERT' && isSafeLand) type = Math.random() > 0.5 ? 'SAND_SLIME' : 'GOLEM';
+                else if (biome === 'SNOW' && isSafeLand) type = Math.random() > 0.6 ? 'SNOW_WOLF' : 'ICE_SPIRIT';
+                else if (biome === 'BADLANDS' && isSafeLand) type = 'MAGMA_GOLEM';
+                else if (biome === 'MOUNTAIN' && isSafeLand) type = 'GOLEM';
+                else if (biome === 'GRASSLAND' && isSafeLand) type = Math.random() > 0.7 ? 'SLIME' : 'GOBLIN';
+            }
 
-            if (biome === 'FOREST') type = Math.random() > 0.5 ? 'WOLF' : 'GOBLIN';
-            if (biome === 'DESERT') type = Math.random() > 0.5 ? 'SAND_SLIME' : 'GOLEM';
-            if (biome === 'SNOW') type = Math.random() > 0.6 ? 'SNOW_WOLF' : 'ICE_SPIRIT';
-            if (biome === 'BADLANDS') type = 'MAGMA_GOLEM';
-            if (biome === 'MOUNTAIN') type = 'GOLEM';
-
-            const enemy = new Enemy(this.scene, x, z, type, level);
-            enemy.mesh.position.y = y + enemy.yOffset;
-            this.enemies.push(enemy);
+            if (type) {
+                const enemy = new Enemy(this.scene, x, z, type, level);
+                // Initial placement
+                if (enemy.isAquatic) {
+                    enemy.mesh.position.y = 1.0 + enemy.yOffset;
+                } else {
+                    enemy.mesh.position.y = y + enemy.yOffset;
+                }
+                this.enemies.push(enemy);
+            }
         }
     }
 

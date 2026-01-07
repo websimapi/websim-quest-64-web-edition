@@ -13,6 +13,7 @@ export class Enemy {
         this.detectRadius = 15;
         this.yOffset = 0.7;
         this.baseDamage = 5;
+        this.isAquatic = false;
         
         // Configure Type
         let geo, color;
@@ -35,6 +36,16 @@ export class Enemy {
                 geo.scale(1, 0.6, 1);
                 color = 0xeebb44; // Sand color
                 this.yOffset = 0.4;
+                break;
+            case 'WATER_SLIME':
+                this.baseHp = 25; this.speed = 3.0; this.baseDamage = 5;
+                this.element = 'water';
+                this.baseXp = 20;
+                geo = new THREE.SphereGeometry(0.6, 8, 6);
+                geo.scale(1, 0.6, 1);
+                color = 0x0088ff;
+                this.yOffset = -0.2; // Submerged partially
+                this.isAquatic = true;
                 break;
             case 'WOLF':
                 this.baseHp = 25; this.speed = 6; this.baseDamage = 8;
@@ -86,6 +97,17 @@ export class Enemy {
                 color = 0xaaddff;
                 this.yOffset = 1.8;
                 break;
+            case 'SERPENT':
+                this.baseHp = 60; this.speed = 5; this.baseDamage = 10;
+                this.element = 'water';
+                this.baseXp = 70;
+                // Approximated serpent shape
+                geo = new THREE.CylinderGeometry(0.3, 0.2, 2.0, 8);
+                geo.rotateX(Math.PI/2); // Align Z
+                color = 0x006644;
+                this.yOffset = -0.5; // Swimming deep
+                this.isAquatic = true;
+                break;
             default: // GOBLIN
                 this.baseHp = 30; this.speed = 3; this.baseDamage = 5;
                 this.element = 'earth';
@@ -130,11 +152,22 @@ export class Enemy {
             mat.emissive.setHex(0xff3300);
             mat.emissiveIntensity = 0.5;
         }
+
+        // Special visual parts for Serpent
+        if (type === 'SERPENT') {
+             // Add dorsal fins
+             const finGeo = new THREE.BufferGeometry();
+             const vertices = new Float32Array([
+                 0, 0.3, 0.5,
+                 0, 0.8, 0,
+                 0, 0.3, -0.5
+             ]);
+             finGeo.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
+             const fin = new THREE.Mesh(finGeo, new THREE.MeshBasicMaterial({color: 0x00ff00, side: THREE.DoubleSide}));
+             this.mesh.add(fin);
+        }
         
         this.scene.add(this.mesh);
-
-        // Level Indicator (Simple floating text or just implicit)
-        // For performance we skip text, but size indicates power.
 
         // Hitbox for easier selection
         const hitGeo = new THREE.CylinderGeometry(1.5, 1.5, 3, 8);
@@ -149,6 +182,7 @@ export class Enemy {
         eye.position.set(0, 0.2, 0.5); // Forward Z
         if(type === 'WOLF') eye.position.set(0, 0.2, 0.5);
         if(type === 'GOLEM') eye.position.set(0, 0.4, 0.6);
+        if(type === 'SERPENT') eye.position.set(0, 0.3, 1.0);
         this.mesh.add(eye);
     }
 
@@ -160,15 +194,24 @@ export class Enemy {
     update(dt, playerPos, world) {
         if (!this.mesh) return;
         
-        // Update stored position before we move, just in case
+        // Update stored position before we move
         this.lastPosition.copy(this.mesh.position);
 
         // Ensure Y is correct
         if (world) {
+            let targetY = 0;
             const h = world.getHeight(this.mesh.position.x, this.mesh.position.z);
-            // Smooth lerp for visual niceness
-            const targetY = h + this.yOffset;
             
+            if (this.isAquatic) {
+                const waterLevel = 1.0;
+                targetY = Math.max(h, waterLevel) + this.yOffset;
+                
+                // If terrain is above water, slide up to terrain
+                if (h > waterLevel) targetY = h + 0.5; 
+            } else {
+                targetY = h + this.yOffset;
+            }
+
             if (this.type === 'SPIRIT' || this.type === 'ICE_SPIRIT') {
                  // Flying units bob
                  this.mesh.position.y = targetY + Math.sin(Date.now() * 0.003) * 0.5;
@@ -176,6 +219,9 @@ export class Enemy {
                  this.mesh.position.y = THREE.MathUtils.lerp(this.mesh.position.y, targetY, dt * 10);
             }
         }
+
+        // Animate visuals
+        this.animate(dt, this.state === 'CHASE' || (this.waitTime <= 0 && this.state === 'ROAM'));
 
         if (this.state === 'BATTLE') {
             return;
@@ -190,11 +236,14 @@ export class Enemy {
             this.state = 'ROAM';
         }
 
+        let isMoving = false;
+
         if (this.state === 'CHASE') {
             const dir = new THREE.Vector3().subVectors(playerPos, this.mesh.position).normalize();
             dir.y = 0;
             this.mesh.position.add(dir.multiplyScalar(this.speed * dt));
             this.mesh.lookAt(playerPos);
+            isMoving = true;
         } else {
             // Roaming logic
             if (this.waitTime > 0) {
@@ -215,10 +264,52 @@ export class Enemy {
                     const dir = new THREE.Vector3().subVectors(this.roamTarget, this.mesh.position).normalize();
                     this.mesh.position.add(dir.multiplyScalar((this.speed * 0.5) * dt));
                     this.mesh.lookAt(this.roamTarget);
+                    isMoving = true;
                 }
             }
         }
+    }
 
+    animate(dt, isMoving) {
+        const t = Date.now() * 0.001;
+        
+        // Reset scale defaults
+        // this.mesh.scale.setScalar(1.0); // handled by base scale
+        
+        if (this.type.includes('SLIME')) {
+            // Squash/Stretch
+            const freq = isMoving ? 15 : 5;
+            const amp = isMoving ? 0.2 : 0.05;
+            const s = 1.0 + Math.sin(t * freq) * amp;
+            
+            // Preserve volume roughly
+            this.mesh.scale.set(1/Math.sqrt(s), s, 1/Math.sqrt(s));
+            // Apply base size scale on top if needed, but here we assume base is 1 relative to animation
+        }
+        else if (this.type === 'GOBLIN' || this.type.includes('WOLF')) {
+            // Hop / Waddle
+            if (isMoving) {
+                const hop = Math.abs(Math.sin(t * 12));
+                this.mesh.rotation.z = Math.sin(t * 12) * 0.1; // Waddle
+                this.mesh.position.y += hop * 0.2; // Hop up
+            } else {
+                this.mesh.rotation.z = THREE.MathUtils.lerp(this.mesh.rotation.z, 0, dt * 5);
+                this.mesh.scale.y = 1.0 + Math.sin(t * 3) * 0.02; // Breathe
+            }
+        }
+        else if (this.type.includes('GOLEM')) {
+            // Heavy stomp walk
+            if (isMoving) {
+                this.mesh.rotation.z = Math.sin(t * 5) * 0.1;
+                this.mesh.rotation.x = Math.abs(Math.cos(t * 5)) * 0.1; // Lurch forward
+            }
+        }
+        else if (this.type === 'SERPENT') {
+            // Swim undulation
+            this.mesh.position.y += Math.sin(t * 3) * 0.1;
+            this.mesh.rotation.z = Math.sin(t * 5) * 0.2; // Roll
+            this.mesh.rotation.y += Math.sin(t * 2) * 0.01; // Meander yaw
+        }
     }
 
     takeDamage(amount) {
@@ -317,18 +408,32 @@ export class Enemy {
                     // Visual shake
                     this.mesh.position.y += Math.sin(Date.now() * 0.5) * 0.1;
                 } 
-                else if (this.type === 'SPIRIT' || this.type === 'ICE_SPIRIT') {
-                    // Ranged zap
-                    if (dist < 14.0) {
+                else if (this.type === 'SPIRIT' || this.type === 'ICE_SPIRIT' || this.type === 'SERPENT') {
+                    // Ranged zap / Water Spit
+                    const range = (this.type === 'SERPENT') ? 10.0 : 14.0;
+                    if (dist < range) {
                         damage = this.damage;
                         hit = true;
+                        
+                        // Visual Lunge for serpent
+                        if (this.type === 'SERPENT') {
+                            this.mesh.position.add(dir.multiplyScalar(5.0 * dt));
+                        }
                     }
                 } 
                 else {
                     // Melee Dash (Goblin, Wolf, Slime, etc)
                     const dashSpeed = this.speed * 4;
                     this.mesh.position.add(dir.multiplyScalar(dashSpeed * dt));
-                    if (world) this.mesh.position.y = world.getHeight(this.mesh.position.x, this.mesh.position.z) + this.yOffset;
+                    
+                    // Maintain height logic
+                    if (world) {
+                        if (this.isAquatic) {
+                            this.mesh.position.y = Math.max(world.getHeight(this.mesh.position.x, this.mesh.position.z), 1.0) + this.yOffset;
+                        } else {
+                            this.mesh.position.y = world.getHeight(this.mesh.position.x, this.mesh.position.z) + this.yOffset;
+                        }
+                    }
 
                     if (dist < 2.5) {
                         damage = this.damage;
