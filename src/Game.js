@@ -151,10 +151,14 @@ export class Game {
                 return;
             }
 
-            this.player.startCasting(config, () => {
+            if (this.player.startCasting(config, () => {
                 this.player.stats.mp -= config.cost;
                 this.spawnRoamingProjectile(element, config);
-            });
+            })) {
+                // Cast started
+            } else {
+                this.uiManager.showMessage("Cooldown...", 500);
+            }
             
         } else if (this.gameState === 'BATTLE') {
             this.combatSystem.playerCast(element);
@@ -367,6 +371,7 @@ export class Game {
 
     startBattle(enemy) {
         this.gameState = 'BATTLE';
+        this.player.resetCooldowns();
         this.uiManager.showMessage("BATTLE START!", 2000);
         this.combatSystem.initBattle(this.player.mesh.position, enemy, this.world.enemies, this.world);
     }

@@ -28,6 +28,31 @@ export class UIManager {
         this.updateStats();
         this.updateBattleHud(gameState, combatSystem);
         this.updateSpellDeck();
+        this.updateCooldowns();
+    }
+
+    updateCooldowns() {
+        if (!this.player) return;
+        
+        ['fire', 'water', 'earth', 'wind'].forEach(el => {
+            const btns = document.querySelectorAll('.spell-btn');
+            btns.forEach(btn => {
+                if (btn.dataset.el === el) {
+                    const cd = this.player.cooldowns[el];
+                    if (cd > 0) {
+                        btn.style.opacity = 0.4;
+                        btn.style.borderColor = '#555';
+                        btn.innerText = cd.toFixed(1);
+                    } else {
+                        btn.style.opacity = 1.0;
+                        btn.style.borderColor = 'white';
+                        if (btn.innerText !== el.toUpperCase()) {
+                             btn.innerText = el.toUpperCase();
+                        }
+                    }
+                }
+            });
+        });
     }
 
     updateSpellDeck() {

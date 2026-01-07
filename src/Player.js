@@ -22,6 +22,13 @@ export class Player {
             maxTime: 0,
             onComplete: null
         };
+
+        this.cooldowns = {
+            fire: 0,
+            water: 0,
+            earth: 0,
+            wind: 0
+        };
         
         this.targetRotation = null;
         this.navTarget = null;
@@ -51,6 +58,14 @@ export class Player {
 
     update(dt, inputs, world, boundaryCenter = null, boundaryRadius = 0, canMove = true) {
         this.stats.regenMp(dt);
+
+        // Update Cooldowns
+        for (const el in this.cooldowns) {
+            if (this.cooldowns[el] > 0) {
+                this.cooldowns[el] -= dt;
+                if (this.cooldowns[el] < 0) this.cooldowns[el] = 0;
+            }
+        }
 
         // Update Location Name UI if world exists
         if (world && Math.random() < 0.05) { 
@@ -163,11 +178,23 @@ export class Player {
     }
 
     startCasting(spellConfig, onComplete) {
+        // Check Cooldown
+        if (this.cooldowns[spellConfig.element] > 0) return false;
+
         this.castState.active = true;
         this.castState.maxTime = spellConfig.castTime || 1.0;
         this.castState.timer = this.castState.maxTime;
         this.castState.onComplete = onComplete;
+        
+        // Set Cooldown
+        this.cooldowns[spellConfig.element] = spellConfig.cooldown || 1.5;
+
         this.audioManager.playSfx('cast');
+        return true;
+    }
+
+    resetCooldowns() {
+        this.cooldowns = { fire: 0, water: 0, earth: 0, wind: 0 };
     }
 
     stopCasting() {

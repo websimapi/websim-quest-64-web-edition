@@ -15,6 +15,7 @@ export function getSpellConfig(element, level, currentHp, maxHp) {
         scale: 0.5 + (level * 0.05),
         type: 'projectile', // projectile, ground, heal
         castTime: 0.5,
+        cooldown: 1.5,
         name: 'Spell',
         color: 0xffffff
     };
