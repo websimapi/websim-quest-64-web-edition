@@ -47,7 +47,7 @@ export class WaterSystem {
                 varying vec3 vViewPosition;
                 varying vec2 vUv;
 
-                // Gerstner Wave approximation
+                // Gerstner Wave
                 vec3 gerstnerWave(vec3 p, float steepness, float wavelength, float speed, vec2 dir) {
                     float k = 2.0 * 3.14159 / wavelength;
                     float c = sqrt(9.8 / k);
@@ -68,23 +68,41 @@ export class WaterSystem {
 
                     vec3 p = worldPos.xyz;
                     
-                    // Sum of waves
+                    // Directional Waves (Wind blowing roughly (1, 0.4))
                     vec3 displacement = vec3(0.0);
-                    displacement += gerstnerWave(p, 0.2, 15.0, 0.5, vec2(1.0, 0.5));
-                    displacement += gerstnerWave(p, 0.15, 7.0, 0.8, vec2(0.7, 0.7));
-                    displacement += gerstnerWave(p, 0.1, 3.0, 1.2, vec2(-0.2, 1.0));
+                    
+                    // Major Swell
+                    displacement += gerstnerWave(p, 0.25, 20.0, 0.6, normalize(vec2(1.0, 0.3)));
+                    // Crossing Swell
+                    displacement += gerstnerWave(p, 0.20, 12.0, 0.7, normalize(vec2(0.7, 0.8)));
+                    // Chop
+                    displacement += gerstnerWave(p, 0.15, 5.0, 1.1, normalize(vec2(0.9, 0.1)));
+                    // Fine detail
+                    displacement += gerstnerWave(p, 0.10, 2.5, 1.5, normalize(vec2(0.5, 0.5)));
                     
                     vec3 finalPos = p + displacement;
                     vWaveHeight = finalPos.y - p.y;
                     
-                    // Calc Normal (Analytical is better but standard finite diff is cheaper here)
-                    vec3 pA = finalPos;
-                    vec3 pB = p + vec3(0.1, 0.0, 0.0) + gerstnerWave(p + vec3(0.1, 0.0, 0.0), 0.2, 15.0, 0.5, vec2(1.0, 0.5)); // simplistic normal approx
-                    vec3 tangent = normalize(vec3(1.0, (pB.y - pA.y)*10.0, 0.0));
-                    vec3 binormal = vec3(0.0, 0.0, 1.0);
-                    vNormal = normalize(cross(binormal, tangent)); 
-                    // (Actually let's just use up vector perturbed by wave height for cheap look)
-                    vNormal = normalize(vec3(-displacement.x * 0.5, 1.0, -displacement.z * 0.5));
+                    // Analytical Normal Approximation via Finite Difference
+                    float delta = 0.1;
+                    vec3 pX = p + vec3(delta, 0.0, 0.0);
+                    vec3 dX = vec3(0.0);
+                    dX += gerstnerWave(pX, 0.25, 20.0, 0.6, normalize(vec2(1.0, 0.3)));
+                    dX += gerstnerWave(pX, 0.20, 12.0, 0.7, normalize(vec2(0.7, 0.8)));
+                    dX += gerstnerWave(pX, 0.15, 5.0, 1.1, normalize(vec2(0.9, 0.1)));
+                    vec3 finalX = pX + dX;
+                    
+                    vec3 pZ = p + vec3(0.0, 0.0, delta);
+                    vec3 dZ = vec3(0.0);
+                    dZ += gerstnerWave(pZ, 0.25, 20.0, 0.6, normalize(vec2(1.0, 0.3)));
+                    dZ += gerstnerWave(pZ, 0.20, 12.0, 0.7, normalize(vec2(0.7, 0.8)));
+                    dZ += gerstnerWave(pZ, 0.15, 5.0, 1.1, normalize(vec2(0.9, 0.1)));
+                    vec3 finalZ = pZ + dZ;
+                    
+                    vec3 tangentX = finalX - finalPos;
+                    vec3 tangentZ = finalZ - finalPos; // order matters for cross product
+                    // X cross Z is Up
+                    vNormal = normalize(cross(tangentZ, tangentX));
 
                     vWorldPos = finalPos;
                     
@@ -103,6 +121,7 @@ export class WaterSystem {
                 uniform vec3 uShallowColor;
                 uniform vec3 uFoamColor;
                 uniform vec3 uSunPosition;
+                uniform float uTime;
                 uniform sampler2D uHeightMap;
                 uniform float uWorldSize;
                 uniform float uWaterLevel;
@@ -113,56 +132,98 @@ export class WaterSystem {
                 varying vec3 vViewPosition;
                 varying vec2 vUv;
 
+                // Simple Hash Noise
+                float hash(vec2 p) {
+                    return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
+                }
+                
+                float noise(vec2 p) {
+                    vec2 i = floor(p);
+                    vec2 f = fract(p);
+                    f = f * f * (3.0 - 2.0 * f);
+                    return mix(mix(hash(i + vec2(0.0, 0.0)), hash(i + vec2(1.0, 0.0)), f.x),
+                               mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y);
+                }
+
+                float fbm(vec2 p) {
+                    float v = 0.0;
+                    float a = 0.5;
+                    for (int i = 0; i < 3; i++) {
+                        v += a * noise(p);
+                        p *= 2.0;
+                        a *= 0.5;
+                    }
+                    return v;
+                }
+
                 void main() {
                     // 1. Calculate Depth
                     vec2 texUv = (vWorldPos.xz / uWorldSize) + 0.5;
                     float terrainHeight = texture2D(uHeightMap, texUv).r;
                     
                     // Depth relative to flat water level, adjusted by wave
-                    float currentWaterY = vWorldPos.y; // includes wave
-                    float waterDepth = uWaterLevel - terrainHeight; // Average depth
-                    float visualDepth = currentWaterY - terrainHeight; // Exact at this pixel
+                    float waterDepth = uWaterLevel - terrainHeight; 
+                    float visualDepth = vWorldPos.y - terrainHeight; 
                     
                     // Safety clamp
                     visualDepth = max(0.0, visualDepth);
 
-                    // 2. Shoreline Foam
-                    // If visual depth is small, we are near shore
-                    float foamMask = smoothstep(0.8, 0.0, visualDepth);
+                    // 2. Shoreline Simulation
+                    // Run-up wave moves towards shore (assuming deep -> shallow)
+                    float shoreTime = uTime * 0.8;
+                    float shoreWave = sin(shoreTime + waterDepth * 1.5); 
                     
-                    // Add some wave-based foam modulation
-                    float waveFoam = smoothstep(0.3, 0.6, vWaveHeight + sin(vWorldPos.x * 0.5 + vWorldPos.z * 0.5) * 0.2);
-                    foamMask = max(foamMask, waveFoam * 0.5); // Foam on crests
+                    // Base foam at very shallow depth
+                    float foamMask = smoothstep(0.4, 0.0, visualDepth);
+                    
+                    // Retreating bubbles: Show when shoreWave is "low" (receding)
+                    float bubbleNoise = fbm(vWorldPos.xz * 2.0);
+                    
+                    float retreatFactor = smoothstep(0.2, -0.8, shoreWave); // Active in trough
+                    float shallowArea = smoothstep(2.5, 0.0, waterDepth); // Only near shore
+                    
+                    float bubbles = retreatFactor * shallowArea * step(0.45, bubbleNoise);
+                    foamMask += bubbles * 0.8;
+                    
+                    // Crest Foam
+                    float crestFoam = smoothstep(0.4, 0.7, vWaveHeight - noise(vWorldPos.xz * 0.5) * 0.2);
+                    foamMask += crestFoam;
+
+                    foamMask = clamp(foamMask, 0.0, 1.0);
 
                     // 3. Color Mixing
-                    // Shallow = Light Blue, Deep = Dark
-                    float depthFactor = smoothstep(0.0, 8.0, visualDepth);
+                    float depthFactor = smoothstep(0.0, 12.0, visualDepth);
                     vec3 waterColor = mix(uShallowColor, uBaseColor, depthFactor);
                     
                     // 4. Lighting
                     vec3 viewDir = normalize(vViewPosition);
                     vec3 normal = normalize(vNormal);
+                    
+                    // Perturb normal with noise for surface detail
+                    normal.x += (noise(vWorldPos.xz * 5.0 + uTime) - 0.5) * 0.1;
+                    normal.z += (noise(vWorldPos.xz * 4.5 - uTime) - 0.5) * 0.1;
+                    normal = normalize(normal);
+
                     vec3 sunDir = normalize(uSunPosition);
                     
                     // Specular
                     vec3 halfVector = normalize(sunDir + viewDir);
                     float NdotH = max(0.0, dot(normal, halfVector));
-                    float specular = pow(NdotH, 80.0) * 1.0; 
+                    float specular = pow(NdotH, 120.0) * 1.5; 
                     
-                    // Fresnel (Reflectivity)
-                    float fresnel = pow(1.0 - max(0.0, dot(viewDir, normal)), 3.0);
+                    // Fresnel
+                    float fresnel = pow(1.0 - max(0.0, dot(viewDir, normal)), 4.0);
                     fresnel = clamp(fresnel, 0.0, 1.0);
                     
-                    vec3 skyColor = vec3(0.7, 0.9, 1.0);
-                    vec3 finalColor = mix(waterColor, skyColor, fresnel * 0.4);
+                    vec3 skyColor = vec3(0.6, 0.8, 0.95);
+                    vec3 finalColor = mix(waterColor, skyColor, fresnel * 0.5);
                     
                     finalColor += specular;
-                    finalColor = mix(finalColor, uFoamColor, foamMask * 0.8); // Apply foam
+                    finalColor = mix(finalColor, uFoamColor, foamMask * 0.9);
 
-                    // 5. Opacity / Transparency
-                    // Deep water is more opaque, shallow is clear
-                    float opacity = mix(0.4, 0.95, depthFactor);
-                    opacity = mix(opacity, 1.0, foamMask); // Foam is opaque
+                    // 5. Opacity
+                    float opacity = mix(0.5, 0.98, depthFactor);
+                    opacity = mix(opacity, 1.0, foamMask); 
 
                     gl_FragColor = vec4(finalColor, opacity);
                     
@@ -333,9 +394,19 @@ export class WaterSystem {
     }
 
     getHeightAt(x, z) {
-        const t = this.time * 0.5;
-        // Match approximate wave shape from shader for physics
-        const y = Math.sin(x * 0.2 + t) * 0.15 + Math.cos(z * 0.15 + t*0.8) * 0.15;
-        return this.waterLevel + y;
+        // Simplified Gerstner approximation for CPU physics
+        // Wave 1 (Major Swell)
+        const k1 = 2.0 * Math.PI / 20.0;
+        const c1 = Math.sqrt(9.8 / k1);
+        const f1 = k1 * ((x * 1.0 + z * 0.3) - c1 * 0.6 * this.time);
+        const y1 = (0.25 / k1) * Math.sin(f1);
+        
+        // Wave 2 (Crossing)
+        const k2 = 2.0 * Math.PI / 12.0;
+        const c2 = Math.sqrt(9.8 / k2);
+        const f2 = k2 * ((x * 0.7 + z * 0.8) - c2 * 0.7 * this.time);
+        const y2 = (0.20 / k2) * Math.sin(f2);
+        
+        return this.waterLevel + y1 + y2;
     }
 }
