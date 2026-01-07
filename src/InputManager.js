@@ -20,6 +20,79 @@ export class InputManager {
         this.setupKeyboard();
         this.setupPointer();
         this.setupSpellButtons();
+        this.setupToolbelt();
+    }
+
+    setupToolbelt() {
+        const container = document.getElementById('toolbelt-container');
+        if (!container) return;
+        
+        let pressTimer = null;
+        let isLongPress = false;
+
+        // Disable context menu
+        container.addEventListener('contextmenu', e => { 
+            e.preventDefault(); 
+            e.stopPropagation(); 
+            return false; 
+        });
+
+        const startPress = (e) => {
+            const slot = e.target.closest('.toolbelt-slot');
+            if (!slot) return;
+            
+            e.stopPropagation(); // Stop propagation to game controls
+            
+            isLongPress = false;
+            pressTimer = setTimeout(() => {
+                isLongPress = true;
+                const idx = parseInt(slot.dataset.slot);
+                if (!isNaN(idx)) {
+                    this.game.uiManager.openInventory(idx);
+                }
+            }, 400); // 400ms for long press
+        };
+
+        const endPress = (e) => {
+            const slot = e.target.closest('.toolbelt-slot');
+            if (pressTimer) {
+                clearTimeout(pressTimer);
+                pressTimer = null;
+            }
+            
+            if (!slot || isLongPress) return;
+            
+            // It was a tap
+            const idx = parseInt(slot.dataset.slot);
+            if (!isNaN(idx)) {
+                e.stopPropagation();
+                e.preventDefault(); // Prevent ghost clicks
+                
+                const result = this.game.player.useToolbeltItem(idx);
+                if (result.success) {
+                    this.game.uiManager.showMessage(`Used ${result.name}`, 1500);
+                } else if (result.msg) {
+                    this.game.uiManager.showMessage(result.msg, 1000);
+                    // Open inventory if empty
+                    if (result.msg === "Empty") {
+                        this.game.uiManager.openInventory(idx);
+                    }
+                }
+            }
+        };
+
+        const cancelPress = () => {
+            if (pressTimer) {
+                clearTimeout(pressTimer);
+                pressTimer = null;
+            }
+        };
+
+        // Pointer events cover mouse and touch
+        container.addEventListener('pointerdown', startPress);
+        container.addEventListener('pointerup', endPress);
+        container.addEventListener('pointerleave', cancelPress);
+        container.addEventListener('pointercancel', cancelPress);
     }
 
     setupJoystick() {

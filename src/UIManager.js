@@ -1,4 +1,4 @@
-import { } from 'three'; // kept for future UI-related 3D hooks if needed
+import { getItemConfig } from './Item.js';
 
 export class UIManager {
     constructor(player, combatSystem) {
@@ -14,6 +14,18 @@ export class UIManager {
         this.messageBox = document.getElementById('message-box');
         this.levelupOverlay = document.getElementById('levelup-overlay');
         
+        // Toolbelt & Inventory
+        this.toolbeltContainer = document.getElementById('toolbelt-container');
+        this.inventoryModal = document.getElementById('inventory-modal');
+        this.inventoryGrid = document.getElementById('inventory-grid');
+        this.editingSlot = null;
+
+        // Inventory Close Button
+        const closeInvBtn = document.getElementById('close-inv-btn');
+        if (closeInvBtn) {
+            closeInvBtn.addEventListener('click', () => this.closeInventory());
+        }
+
         // Add Location Indicator
         this.locationDisplay = document.createElement('div');
         this.locationDisplay.style.cssText = "position:absolute; top:20px; width:100%; text-align:center; color:white; font-size:14px; text-shadow:2px 2px 0 #000; pointer-events:none;";
@@ -29,6 +41,94 @@ export class UIManager {
         this.updateBattleHud(gameState, combatSystem);
         this.updateSpellDeck();
         this.updateCooldowns();
+        this.updateToolbelt();
+    }
+
+    updateToolbelt() {
+        if (!this.player || !this.toolbeltContainer) return;
+
+        const slots = this.toolbeltContainer.querySelectorAll('.toolbelt-slot');
+        this.player.stats.toolbelt.forEach((type, index) => {
+            if (index >= slots.length) return;
+            const slot = slots[index];
+            const currentType = slot.dataset.type;
+            const count = type ? (this.player.stats.inventory[type] || 0) : 0;
+            const currentCount = slot.dataset.count;
+
+            if (currentType !== String(type) || currentCount !== String(count)) {
+                slot.dataset.type = type || '';
+                slot.dataset.count = count;
+                slot.innerHTML = '';
+                
+                if (type && count > 0) {
+                    const config = getItemConfig(type);
+                    
+                    const icon = document.createElement('div');
+                    icon.className = 'toolbelt-icon';
+                    icon.style.backgroundColor = config.cssColor;
+                    
+                    const countBadge = document.createElement('div');
+                    countBadge.className = 'toolbelt-count';
+                    countBadge.innerText = count;
+                    
+                    slot.appendChild(icon);
+                    slot.appendChild(countBadge);
+                }
+            }
+        });
+    }
+
+    openInventory(slotIndex) {
+        this.editingSlot = slotIndex;
+        this.inventoryModal.style.display = 'flex';
+        this.renderInventory();
+    }
+
+    closeInventory() {
+        this.inventoryModal.style.display = 'none';
+        this.editingSlot = null;
+    }
+
+    renderInventory() {
+        this.inventoryGrid.innerHTML = '';
+        
+        // Items list
+        const items = Object.entries(this.player.stats.inventory);
+        let hasItems = false;
+
+        items.forEach(([type, count]) => {
+            if (count > 0) {
+                hasItems = true;
+                const config = getItemConfig(type);
+                
+                const div = document.createElement('div');
+                div.className = 'inv-item';
+                div.innerHTML = `
+                    <div class="toolbelt-icon" style="background:${config.cssColor}; width:20px; height:20px;"></div>
+                    <div>
+                        <div>${config.name}</div>
+                        <div style="color:#888;">x${count}</div>
+                    </div>
+                `;
+                
+                div.onclick = () => {
+                    this.player.stats.toolbelt[this.editingSlot] = type;
+                    this.closeInventory();
+                };
+                
+                this.inventoryGrid.appendChild(div);
+            }
+        });
+
+        // Add "Empty" option
+        const clearDiv = document.createElement('div');
+        clearDiv.className = 'inv-item';
+        clearDiv.innerHTML = `<div>EMPTY SLOT</div>`;
+        clearDiv.onclick = () => {
+            this.player.stats.toolbelt[this.editingSlot] = null;
+            this.closeInventory();
+        };
+        this.inventoryGrid.appendChild(clearDiv);
     }
 
     updateCooldowns() {
