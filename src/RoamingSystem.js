@@ -15,6 +15,10 @@ export class RoamingSystem {
         this.lastMovePos = new THREE.Vector3();
         this.stuckTimer = 0;
         this.wanderDirection = new THREE.Vector3(Math.random()-0.5, 0, Math.random()-0.5).normalize();
+
+        // Combat State
+        this.combatState = 'NEUTRAL'; // NEUTRAL, CHASING, KITING, ATTACKING
+        this.combatTimer = 0;
     }
 
     update(dt) {
@@ -71,7 +75,7 @@ export class RoamingSystem {
         }
 
         // Find target if none or dead or too far
-        const detectionRange = 150; // Vastly increased range to spot distant enemies
+        const detectionRange = 150; 
         
         if (!this.aiTarget || this.aiTarget.hp <= 0 || this.aiTarget.mesh.position.distanceTo(this.game.player.mesh.position) > detectionRange) {
             // Get closest living enemy
@@ -84,6 +88,10 @@ export class RoamingSystem {
                 }
             }
             this.aiTarget = closest;
+            // Reset state on new target
+            if (this.aiTarget) {
+                this.combatState = 'NEUTRAL';
+            }
         }
 
         if (this.aiTarget) {
@@ -91,40 +99,86 @@ export class RoamingSystem {
             const tPos = this.aiTarget.mesh.position;
             const dist = pPos.distanceTo(tPos);
 
-            // Intelligent Approach:
-            // If out of range (> 20), move closer.
-            // If in range (10-20), stop and cast.
-            // If too close (< 8), back off.
+            // --- Combat State Logic ---
 
-            if (dist > 18) {
-                // Move towards
-                const dir = new THREE.Vector3().subVectors(tPos, pPos).normalize();
-                inputs.x = dir.x;
-                inputs.y = -dir.z; 
-            } else if (dist < 8) {
-                // Back off slightly to optimal range
+            // Priority Interrupt: Survival (Kiting)
+            // If we are getting too close and NOT currently locked in a cast animation, run.
+            if (dist < 8 && !this.game.player.castState.active) {
+                this.combatState = 'KITING';
+            }
+
+            // State Transitions
+            switch (this.combatState) {
+                case 'KITING':
+                    if (dist > 18) { 
+                        // Hysteresis: Run until safe distance (18) before stopping
+                        this.combatState = 'NEUTRAL';
+                    }
+                    break;
+                case 'CHASING':
+                    if (dist < 20) {
+                        this.combatState = 'NEUTRAL';
+                    }
+                    break;
+                case 'ATTACKING':
+                    // Locked state until sequence finishes
+                    // If cast finished and timer expired, return to neutral
+                    if (!this.game.player.castState.active && this.combatTimer <= 0) {
+                        this.combatState = 'NEUTRAL';
+                    }
+                    break;
+                case 'NEUTRAL':
+                default:
+                    if (dist > 30) {
+                        this.combatState = 'CHASING';
+                    } else if (this.aiActionTimer <= 0 && !this.game.player.castState.active) {
+                        // Ready to attack
+                        this.combatState = 'ATTACKING';
+                        this.combatTimer = 0.5; // Prep time to face target
+                    }
+                    break;
+            }
+
+            // --- Execution ---
+            if (this.combatState === 'KITING') {
+                // Run away decisively
                 const dir = new THREE.Vector3().subVectors(pPos, tPos).normalize();
                 inputs.x = dir.x;
                 inputs.y = -dir.z;
-            } else {
-                // Good range, stop and shoot
+            } 
+            else if (this.combatState === 'CHASING') {
+                // Run towards
+                const dir = new THREE.Vector3().subVectors(tPos, pPos).normalize();
+                inputs.x = dir.x;
+                inputs.y = -dir.z;
+            }
+            else if (this.combatState === 'ATTACKING') {
+                // Stop to aim
                 inputs.x = 0;
                 inputs.y = 0;
                 
-                if (this.aiActionTimer <= 0 && !this.game.player.castState.active) {
+                // Prep Phase: Face Target
+                if (this.combatTimer > 0) {
                     this.game.player.faceTarget(tPos);
+                    this.combatTimer -= dt;
                     
-                    this.aiActionTimer = 4.0; // Wait before next shot/move
-                    
-                    // Delay cast to allow rotation to align
-                    setTimeout(() => {
-                        if (this.game.gameState !== 'ROAMING') return;
-                        const elements = ['fire', 'water', 'earth', 'wind'];
-                        const el = elements[Math.floor(Math.random() * elements.length)];
-                        this.game.handleSpellCast(el);
-                    }, 400);
+                    // Trigger Cast at end of prep
+                    if (this.combatTimer <= 0) {
+                         const elements = ['fire', 'water', 'earth', 'wind'];
+                         const el = elements[Math.floor(Math.random() * elements.length)];
+                         this.game.handleSpellCast(el);
+                         
+                         // Reset Cooldown
+                         this.aiActionTimer = 2.0 + Math.random(); 
+                    }
                 }
             }
+            else {
+                // Neutral Idle
+                inputs.x = 0;
+                inputs.y = 0;
+            }
+
         } else {
              // Smart Exploring Logic - Long Distance Travel with Intent
              
