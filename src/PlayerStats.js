@@ -58,7 +58,7 @@ export class PlayerStats {
 
     regenMp(dt) {
         // Base regen + water bonus
-        const rate = 0.5 + (this.spirits.water * 0.2);
+        const rate = 0.15 + (this.spirits.water * 0.08);
         this.mp = Math.min(this.maxMp, this.mp + rate * dt);
     }
 }
