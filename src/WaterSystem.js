@@ -16,7 +16,7 @@ export class WaterSystem {
         // 1. Generate Heightmap Texture for depth effects
         this.generateHeightMap();
 
-        const size = 4000;
+        const size = 2000;
         const tileSize = 200;
         const divisions = 64; // Higher detail for smoother waves
         
@@ -141,6 +141,7 @@ export class WaterSystem {
                 uniform float uWorldSize;
                 uniform float uWaterLevel;
                 
+                uniform vec3 cameraPosition;
                 varying float vWaveHeight;
                 varying vec3 vWorldPos;
                 varying vec3 vNormal;
@@ -211,13 +212,15 @@ export class WaterSystem {
                     vec3 waterColor = mix(uShallowColor, deepColor, depthFactor);
                     
                     // 4. Lighting
-                    vec3 viewDir = normalize(vViewPosition);
+                    // Fix: Use World Space View Direction because vNormal is in World Space
+                    vec3 viewDir = normalize(cameraPosition - vWorldPos);
                     vec3 normal = normalize(vNormal);
                     
                     // Perturb normal - Less perturbation on ponds (glassy)
                     float roughness = 0.3 + 0.7 * vOceanFactor;
                     float n1 = noise(vWorldPos.xz * 0.5 + uTime * 0.5);
                     float n2 = noise(vWorldPos.xz * 1.0 - uTime * 0.8);
+                    
                     normal.x += (n1 - 0.5) * 0.2 * roughness;
                     normal.z += (n2 - 0.5) * 0.2 * roughness;
                     normal = normalize(normal);
@@ -225,7 +228,9 @@ export class WaterSystem {
                     vec3 sunDir = normalize(uSunPosition);
                     vec3 halfVector = normalize(sunDir + viewDir);
                     float NdotH = max(0.0, dot(normal, halfVector));
-                    float specular = pow(NdotH, 120.0) * 1.5; 
+                    
+                    // Adjusted specular for better wave visibility
+                    float specular = pow(NdotH, 80.0) * 2.0; 
                     
                     float fresnel = pow(1.0 - max(0.0, dot(viewDir, normal)), 4.0);
                     fresnel = clamp(fresnel, 0.0, 1.0);
@@ -273,10 +278,10 @@ export class WaterSystem {
     generateHeightMap() {
         if (!this.world) return;
         
-        const size = 1024;
+        const size = 256;
         const data = new Float32Array(size * size);
         
-        const worldBounds = 4000;
+        const worldBounds = 2000;
         const halfBounds = worldBounds / 2;
         
         for (let y = 0; y < size; y++) {
@@ -359,8 +364,8 @@ export class WaterSystem {
         
         let attempts = 0;
         while(!valid && attempts < 5) {
-            x = (Math.random() - 0.5) * 1800; // Widen bubble spawn area to cover most of the world
-            z = (Math.random() - 0.5) * 1800;
+            x = (Math.random() - 0.5) * 400; // Constrain bubbles to center area mainly
+            z = (Math.random() - 0.5) * 400;
             const h = this.world ? this.world.getHeight(x, z) : -10;
             
             if (h < this.waterLevel - 1.0) { // Valid water depth
