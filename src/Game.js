@@ -18,9 +18,9 @@ export class Game {
         // Setup Three.js
         this.scene = new THREE.Scene();
         this.scene.background = new THREE.Color(0x87CEEB); // Sky blue
-        this.scene.fog = new THREE.Fog(0x87CEEB, 20, 60);
+        this.scene.fog = new THREE.Fog(0x87CEEB, 60, 150); // Increased fog distance for larger world view
 
-        this.camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+        this.camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 2000);
         this.camera.position.set(0, 5, 10);
         
         this.renderer = new THREE.WebGLRenderer({ antialias: false });

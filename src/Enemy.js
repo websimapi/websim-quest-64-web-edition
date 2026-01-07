@@ -1,66 +1,111 @@
 import * as THREE from 'three';
 
 export class Enemy {
-    constructor(scene, x, z, type = 'GOBLIN') {
+    constructor(scene, x, z, type = 'GOBLIN', level = 1) {
         this.scene = scene;
         this.type = type;
+        this.level = level;
         this.state = 'ROAM';
         
         // Stats defaults
-        this.hp = 30;
-        this.maxHp = 30;
+        this.baseHp = 30;
         this.speed = 3;
         this.detectRadius = 15;
         this.yOffset = 0.7;
+        this.baseDamage = 5;
         
         // Configure Type
         let geo, color;
         
         switch (type) {
             case 'SLIME':
-                this.hp = 20; this.maxHp = 20; this.speed = 2;
+                this.baseHp = 20; this.speed = 2; this.baseDamage = 4;
                 this.element = 'water';
-                this.xpValue = 15;
+                this.baseXp = 15;
                 geo = new THREE.SphereGeometry(0.6, 8, 6);
                 geo.scale(1, 0.6, 1);
                 color = 0x44ff44;
                 this.yOffset = 0.4;
                 break;
+            case 'SAND_SLIME':
+                this.baseHp = 25; this.speed = 2.5; this.baseDamage = 6;
+                this.element = 'earth';
+                this.baseXp = 20;
+                geo = new THREE.SphereGeometry(0.6, 8, 6);
+                geo.scale(1, 0.6, 1);
+                color = 0xeebb44; // Sand color
+                this.yOffset = 0.4;
+                break;
             case 'WOLF':
-                this.hp = 25; this.maxHp = 25; this.speed = 6;
+                this.baseHp = 25; this.speed = 6; this.baseDamage = 8;
                 this.element = 'wind';
-                this.xpValue = 30;
+                this.baseXp = 30;
                 geo = new THREE.BoxGeometry(0.5, 0.5, 1.0);
                 color = 0x555555;
                 this.yOffset = 0.5;
                 break;
+            case 'SNOW_WOLF':
+                this.baseHp = 40; this.speed = 7; this.baseDamage = 12;
+                this.element = 'water'; // Ice
+                this.baseXp = 50;
+                geo = new THREE.BoxGeometry(0.6, 0.6, 1.2);
+                color = 0xddeeff;
+                this.yOffset = 0.6;
+                break;
             case 'GOLEM':
-                this.hp = 80; this.maxHp = 80; this.speed = 1.5;
+                this.baseHp = 80; this.speed = 1.5; this.baseDamage = 15;
                 this.element = 'earth';
-                this.xpValue = 80;
+                this.baseXp = 80;
                 geo = new THREE.CylinderGeometry(0.6, 0.6, 1.2, 6);
                 color = 0x6d4c41;
                 this.yOffset = 0.6;
                 this.detectRadius = 10;
                 break;
-            case 'SPIRIT':
-                this.hp = 15; this.maxHp = 15; this.speed = 4;
+            case 'MAGMA_GOLEM':
+                this.baseHp = 150; this.speed = 2.0; this.baseDamage = 25;
                 this.element = 'fire';
-                this.xpValue = 25;
+                this.baseXp = 200;
+                geo = new THREE.CylinderGeometry(0.8, 0.8, 1.5, 6);
+                color = 0x330000;
+                this.yOffset = 0.8;
+                this.detectRadius = 12;
+                break;
+            case 'SPIRIT':
+                this.baseHp = 15; this.speed = 4; this.baseDamage = 6;
+                this.element = 'fire';
+                this.baseXp = 25;
                 geo = new THREE.OctahedronGeometry(0.5);
                 color = 0x00ffff;
                 this.yOffset = 1.5; // Flying
                 break;
+            case 'ICE_SPIRIT':
+                this.baseHp = 35; this.speed = 5; this.baseDamage = 10;
+                this.element = 'water';
+                this.baseXp = 60;
+                geo = new THREE.OctahedronGeometry(0.6);
+                color = 0xaaddff;
+                this.yOffset = 1.8;
+                break;
             default: // GOBLIN
-                this.hp = 30; this.maxHp = 30; this.speed = 3;
+                this.baseHp = 30; this.speed = 3; this.baseDamage = 5;
                 this.element = 'earth';
-                this.xpValue = 20;
+                this.baseXp = 20;
                 geo = new THREE.DodecahedronGeometry(0.7);
                 color = 0x882222;
                 this.yOffset = 0.7;
                 break;
         }
 
+        // Apply Level Scaling
+        const scale = 1 + ((level - 1) * 0.2); // +20% stats per level
+        this.maxHp = Math.floor(this.baseHp * scale);
+        this.hp = this.maxHp;
+        this.damage = Math.floor(this.baseDamage * scale);
+        this.xpValue = Math.floor((this.baseXp || 10) * (1 + (level - 1) * 0.5));
+        
+        // Scale size slightly
+        const sizeScale = 1.0 + Math.min(0.5, (level - 1) * 0.05);
+        
         this.roamOrigin = new THREE.Vector3(x, this.yOffset, z);
         this.roamRadius = 20;
         this.roamTarget = this.roamOrigin.clone();
@@ -77,8 +122,18 @@ export class Enemy {
         this.mesh = new THREE.Mesh(geo, mat);
         this.mesh.castShadow = true;
         this.mesh.position.copy(this.roamOrigin);
+        this.mesh.scale.setScalar(sizeScale);
+
+        // Add emissive glow for Magma Golem
+        if (type === 'MAGMA_GOLEM') {
+            mat.emissive.setHex(0xff3300);
+            mat.emissiveIntensity = 0.5;
+        }
         
         this.scene.add(this.mesh);
+
+        // Level Indicator (Simple floating text or just implicit)
+        // For performance we skip text, but size indicates power.
 
         // Hitbox for easier selection
         const hitGeo = new THREE.CylinderGeometry(1.5, 1.5, 3, 8);
@@ -245,30 +300,31 @@ export class Enemy {
                 let damage = 0;
                 let hit = false;
                 
-                if (this.type === 'GOLEM') {
+                if (this.type === 'GOLEM' || this.type === 'MAGMA_GOLEM') {
                     // AoE Slam - No movement, just radius check
-                    if (dist < 6.0) { // Large radius
-                        damage = 25;
+                    const radius = (this.type === 'MAGMA_GOLEM') ? 8.0 : 6.0;
+                    if (dist < radius) { 
+                        damage = this.damage * 1.5; // Heavy hit
                         hit = true;
                     }
                     // Visual shake
                     this.mesh.position.y += Math.sin(Date.now() * 0.5) * 0.1;
                 } 
-                else if (this.type === 'SPIRIT') {
+                else if (this.type === 'SPIRIT' || this.type === 'ICE_SPIRIT') {
                     // Ranged zap
-                    if (dist < 12.0) {
-                        damage = 10;
+                    if (dist < 14.0) {
+                        damage = this.damage;
                         hit = true;
                     }
                 } 
                 else {
-                    // Melee Dash (Goblin, Wolf, Slime)
+                    // Melee Dash (Goblin, Wolf, Slime, etc)
                     const dashSpeed = this.speed * 4;
                     this.mesh.position.add(dir.multiplyScalar(dashSpeed * dt));
                     if (world) this.mesh.position.y = world.getHeight(this.mesh.position.x, this.mesh.position.z) + this.yOffset;
 
-                    if (dist < 2.0) {
-                        damage = (this.type === 'WOLF') ? 12 : 8;
+                    if (dist < 2.5) {
+                        damage = this.damage;
                         hit = true;
                         // Bounce player
                         const bounce = dir.clone().multiplyScalar(3.0);
