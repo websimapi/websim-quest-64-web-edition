@@ -18,7 +18,7 @@ export class CameraController {
     }
 
     rotate(dx, dy) {
-        const sensitivity = 0.005;
+        const sensitivity = 0.012;
         this.state.theta -= dx * sensitivity;
         this.state.phi -= dy * sensitivity;
 

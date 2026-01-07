@@ -94,6 +94,7 @@ export class InputManager {
         if (!dom) return;
 
         dom.addEventListener('pointerdown', (e) => {
+            try { dom.setPointerCapture(e.pointerId); } catch(e) {}
             this.inputState.down = true;
             this.inputState.startX = e.clientX;
             this.inputState.startY = e.clientY;
@@ -124,12 +125,18 @@ export class InputManager {
         });
 
         dom.addEventListener('pointerup', (e) => {
+            try { dom.releasePointerCapture(e.pointerId); } catch(e) {}
             this.inputState.down = false;
 
             // Tap Detection
             if (!this.inputState.isDragging && (Date.now() - this.inputState.startTime) < 300) {
                 this.game.handleTap(e.clientX, e.clientY);
             }
+        });
+
+        dom.addEventListener('pointercancel', (e) => {
+            try { dom.releasePointerCapture(e.pointerId); } catch(e) {}
+            this.inputState.down = false;
         });
     }
 }
