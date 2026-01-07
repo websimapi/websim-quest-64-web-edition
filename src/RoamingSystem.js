@@ -14,6 +14,7 @@ export class RoamingSystem {
         this.roamTarget = new THREE.Vector3();
         this.lastMovePos = new THREE.Vector3();
         this.stuckTimer = 0;
+        this.wanderDirection = new THREE.Vector3(Math.random()-0.5, 0, Math.random()-0.5).normalize();
     }
 
     update(dt) {
@@ -70,14 +71,16 @@ export class RoamingSystem {
         }
 
         // Find target if none or dead or too far
-        if (!this.aiTarget || this.aiTarget.hp <= 0 || this.aiTarget.mesh.position.distanceTo(this.game.player.mesh.position) > 40) {
+        const detectionRange = 150; // Vastly increased range to spot distant enemies
+        
+        if (!this.aiTarget || this.aiTarget.hp <= 0 || this.aiTarget.mesh.position.distanceTo(this.game.player.mesh.position) > detectionRange) {
             // Get closest living enemy
             let minDist = 999;
             let closest = null;
             for (let e of this.game.world.enemies) {
                 if (e.hp > 0) {
                     const d = e.mesh.position.distanceTo(this.game.player.mesh.position);
-                    if (d < minDist && d < 40) { minDist = d; closest = e; }
+                    if (d < minDist && d < detectionRange) { minDist = d; closest = e; }
                 }
             }
             this.aiTarget = closest;
@@ -123,31 +126,36 @@ export class RoamingSystem {
                 }
             }
         } else {
-             // Smart Exploring Logic
+             // Smart Exploring Logic - Long Distance Travel with Intent
+             
+             // Initialize wander direction if missing (Global heading)
+             if (!this.wanderDirection) {
+                 const angle = Math.random() * Math.PI * 2;
+                 this.wanderDirection = new THREE.Vector3(Math.cos(angle), 0, Math.sin(angle));
+             }
+
              if (this.roamState === 'IDLE') {
                  this.roamTimer -= dt;
                  if (this.roamTimer <= 0) {
-                     // Pick a valid destination
+                     // Determine new roam target
                      let valid = false;
                      let attempts = 0;
                      const currentPos = this.game.player.mesh.position;
-                     
-                     // Get current forward direction to maintain momentum
-                     const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(this.game.player.mesh.quaternion);
-                     const currentAngle = Math.atan2(forward.z, forward.x);
 
-                     while (!valid && attempts < 15) {
-                        const range = 15 + Math.random() * 25;
+                     // Occasionally change general heading (15% chance)
+                     if (Math.random() < 0.15) {
+                         const angle = Math.random() * Math.PI * 2;
+                         this.wanderDirection.set(Math.cos(angle), 0, Math.sin(angle));
+                     }
+
+                     while (!valid && attempts < 10) {
+                        // Vary the angle slightly from general wander direction (cone +/- 60 deg)
+                        const baseAngle = Math.atan2(this.wanderDirection.z, this.wanderDirection.x);
+                        const vary = (Math.random() - 0.5) * (Math.PI * 0.66); 
+                        const angle = baseAngle + vary;
                         
-                        // Bias angle towards current heading for the first few attempts to create continuous paths
-                        let angle;
-                        if (attempts < 8) {
-                            // +/- 90 degrees max bias, mostly forward
-                            angle = currentAngle + (Math.random() - 0.5) * 2.0; 
-                        } else {
-                            // If blocked/retrying, try random directions
-                            angle = Math.random() * Math.PI * 2;
-                        }
+                        // Pick a longer distance for purposeful travel
+                        const range = 50 + Math.random() * 50; // 50-100 units ahead
                         
                         const tx = currentPos.x + Math.cos(angle) * range;
                         const tz = currentPos.z + Math.sin(angle) * range;
@@ -156,26 +164,35 @@ export class RoamingSystem {
                         const h = this.game.world.getHeight(tx, tz);
                         const waterLevel = this.game.world.waterSystem ? this.game.world.waterSystem.waterLevel : 1.0;
                         
-                        // Avoid water (Ensure target is on land or very shallow water)
-                        if (h > waterLevel - 0.1) {
-                            // Check slope vs current pos to avoid cliffs
-                            const curH = this.game.world.getHeight(currentPos.x, currentPos.z);
-                            if (Math.abs(h - curH) < 10.0) {
-                                this.roamTarget.set(tx, h, tz);
-                                valid = true;
-                            }
+                        // Validation:
+                        // 1. Not deep water (allow shallow)
+                        // 2. Not too high slope relative to current
+                        const curH = this.game.world.getHeight(currentPos.x, currentPos.z);
+                        const isSafeLand = h > waterLevel - 0.2;
+                        const isTraversable = Math.abs(h - curH) < 20.0; 
+
+                        if (isSafeLand && isTraversable) {
+                            this.roamTarget.set(tx, h, tz);
+                            valid = true;
+                            // Commit to this new direction
+                            this.wanderDirection.set(Math.cos(angle), 0, Math.sin(angle));
+                        } else {
+                            // If blocked, rotate wander direction significantly (90 deg) for next attempt
+                            const newAngle = baseAngle + Math.PI / 2 * (Math.random() > 0.5 ? 1 : -1);
+                            this.wanderDirection.set(Math.cos(newAngle), 0, Math.sin(newAngle));
                         }
                         attempts++;
                      }
 
                      if (valid) {
                         this.roamState = 'MOVING';
-                        this.roamTimer = 10.0;
+                        this.roamTimer = 20.0; // Long timeout for long journey
                         this.lastMovePos.copy(currentPos);
                         this.stuckTimer = 0;
                      } else {
-                         // Failed to find target, wait a bit
-                         this.roamTimer = 1.0;
+                         // Completely blocked? Reverse.
+                         this.wanderDirection.negate();
+                         this.roamTimer = 0.2; // Try again immediately
                      }
                  }
                  // Stay still
@@ -187,29 +204,31 @@ export class RoamingSystem {
                  const currentPos = this.game.player.mesh.position;
                  const dist = new THREE.Vector2(currentPos.x, currentPos.z).distanceTo(new THREE.Vector2(this.roamTarget.x, this.roamTarget.z));
                  
-                 // Stuck detection: If we haven't moved much in 0.5s, we are stuck (blocked by water or cliff)
+                 // Stuck detection
                  this.stuckTimer += dt;
                  if (this.stuckTimer > 0.5) {
                      const distMoved = currentPos.distanceTo(this.lastMovePos);
                      if (distMoved < 0.2) {
                          // Stuck
                          this.roamState = 'IDLE';
-                         this.roamTimer = 1.0; // Short wait
+                         this.roamTimer = 0.2; // Quick reset
+                         // Break direction
+                         const angle = Math.random() * Math.PI * 2;
+                         this.wanderDirection.set(Math.cos(angle), 0, Math.sin(angle));
                      }
                      this.lastMovePos.copy(currentPos);
                      this.stuckTimer = 0;
                  }
 
-                 if (dist < 2.0 || this.roamTimer <= 0) {
+                 // Check for "Arrived"
+                 if (dist < 5.0 || this.roamTimer <= 0) {
                      this.roamState = 'IDLE';
-                     // Reduce waiting time significantly for continuous movement feel
-                     // 20% chance to stop and look around, 80% chance to keep moving immediately
-                     if (Math.random() < 0.2) {
-                        this.roamTimer = 1.0 + Math.random() * 2.0;
+                     // Very rarely stop (5% chance), otherwise keep walking
+                     if (Math.random() < 0.05) {
+                        this.roamTimer = 2.0 + Math.random() * 2.0; 
                      } else {
-                        this.roamTimer = 0.05 + Math.random() * 0.2; 
+                        this.roamTimer = 0; // Seamless next leg
                      }
-                     
                      inputs.x = 0; 
                      inputs.y = 0;
                  } else {
