@@ -18,7 +18,7 @@ export class WaterSystem {
 
         const size = 2000;
         const tileSize = 200;
-        const divisions = 32; // Higher detail for waves
+        const divisions = 64; // Higher detail for smoother waves
         
         const geometry = new THREE.PlaneGeometry(tileSize, tileSize, divisions, divisions);
         geometry.rotateX(-Math.PI / 2);
@@ -68,35 +68,33 @@ export class WaterSystem {
 
                     vec3 p = worldPos.xyz;
                     
-                    // Directional Waves (Wind blowing roughly (1, 0.4))
+                    // Directional Waves (Longer wavelength for smoother look)
                     vec3 displacement = vec3(0.0);
                     
                     // Major Swell
-                    displacement += gerstnerWave(p, 0.25, 20.0, 0.6, normalize(vec2(1.0, 0.3)));
+                    displacement += gerstnerWave(p, 0.15, 60.0, 0.5, normalize(vec2(1.0, 0.3)));
                     // Crossing Swell
-                    displacement += gerstnerWave(p, 0.20, 12.0, 0.7, normalize(vec2(0.7, 0.8)));
-                    // Chop
-                    displacement += gerstnerWave(p, 0.15, 5.0, 1.1, normalize(vec2(0.9, 0.1)));
-                    // Fine detail
-                    displacement += gerstnerWave(p, 0.10, 2.5, 1.5, normalize(vec2(0.5, 0.5)));
+                    displacement += gerstnerWave(p, 0.15, 30.0, 0.8, normalize(vec2(0.7, 0.8)));
+                    // Detail Swell (Reduced intensity, larger wavelength)
+                    displacement += gerstnerWave(p, 0.10, 15.0, 1.0, normalize(vec2(0.9, 0.1)));
                     
                     vec3 finalPos = p + displacement;
                     vWaveHeight = finalPos.y - p.y;
                     
                     // Analytical Normal Approximation via Finite Difference
-                    float delta = 0.1;
+                    float delta = 0.5; // Larger delta for smoother normal
                     vec3 pX = p + vec3(delta, 0.0, 0.0);
                     vec3 dX = vec3(0.0);
-                    dX += gerstnerWave(pX, 0.25, 20.0, 0.6, normalize(vec2(1.0, 0.3)));
-                    dX += gerstnerWave(pX, 0.20, 12.0, 0.7, normalize(vec2(0.7, 0.8)));
-                    dX += gerstnerWave(pX, 0.15, 5.0, 1.1, normalize(vec2(0.9, 0.1)));
+                    dX += gerstnerWave(pX, 0.15, 60.0, 0.5, normalize(vec2(1.0, 0.3)));
+                    dX += gerstnerWave(pX, 0.15, 30.0, 0.8, normalize(vec2(0.7, 0.8)));
+                    dX += gerstnerWave(pX, 0.10, 15.0, 1.0, normalize(vec2(0.9, 0.1)));
                     vec3 finalX = pX + dX;
                     
                     vec3 pZ = p + vec3(0.0, 0.0, delta);
                     vec3 dZ = vec3(0.0);
-                    dZ += gerstnerWave(pZ, 0.25, 20.0, 0.6, normalize(vec2(1.0, 0.3)));
-                    dZ += gerstnerWave(pZ, 0.20, 12.0, 0.7, normalize(vec2(0.7, 0.8)));
-                    dZ += gerstnerWave(pZ, 0.15, 5.0, 1.1, normalize(vec2(0.9, 0.1)));
+                    dZ += gerstnerWave(pZ, 0.15, 60.0, 0.5, normalize(vec2(1.0, 0.3)));
+                    dZ += gerstnerWave(pZ, 0.15, 30.0, 0.8, normalize(vec2(0.7, 0.8)));
+                    dZ += gerstnerWave(pZ, 0.10, 15.0, 1.0, normalize(vec2(0.9, 0.1)));
                     vec3 finalZ = pZ + dZ;
                     
                     vec3 tangentX = finalX - finalPos;
@@ -186,7 +184,7 @@ export class WaterSystem {
                     foamMask += bubbles * 0.8;
                     
                     // Crest Foam
-                    float crestFoam = smoothstep(0.4, 0.7, vWaveHeight - noise(vWorldPos.xz * 0.5) * 0.2);
+                    float crestFoam = smoothstep(0.8, 1.2, vWaveHeight - noise(vWorldPos.xz * 0.2) * 0.5);
                     foamMask += crestFoam;
 
                     foamMask = clamp(foamMask, 0.0, 1.0);
@@ -199,9 +197,11 @@ export class WaterSystem {
                     vec3 viewDir = normalize(vViewPosition);
                     vec3 normal = normalize(vNormal);
                     
-                    // Perturb normal with noise for surface detail
-                    normal.x += (noise(vWorldPos.xz * 5.0 + uTime) - 0.5) * 0.1;
-                    normal.z += (noise(vWorldPos.xz * 4.5 - uTime) - 0.5) * 0.1;
+                    // Perturb normal with layered noise for surface detail
+                    float n1 = noise(vWorldPos.xz * 0.5 + uTime * 0.5);
+                    float n2 = noise(vWorldPos.xz * 1.0 - uTime * 0.8);
+                    normal.x += (n1 - 0.5) * 0.2;
+                    normal.z += (n2 - 0.5) * 0.2;
                     normal = normalize(normal);
 
                     vec3 sunDir = normalize(uSunPosition);
@@ -394,18 +394,18 @@ export class WaterSystem {
     }
 
     getHeightAt(x, z) {
-        // Simplified Gerstner approximation for CPU physics
-        // Wave 1 (Major Swell)
-        const k1 = 2.0 * Math.PI / 20.0;
+        // Simplified Gerstner approximation for CPU physics (Approximating new shader waves)
+        // Wave 1 (Major Swell 60)
+        const k1 = 2.0 * Math.PI / 60.0;
         const c1 = Math.sqrt(9.8 / k1);
-        const f1 = k1 * ((x * 1.0 + z * 0.3) - c1 * 0.6 * this.time);
-        const y1 = (0.25 / k1) * Math.sin(f1);
+        const f1 = k1 * ((x * 1.0 + z * 0.3) - c1 * 0.5 * this.time);
+        const y1 = (0.15 / k1) * Math.sin(f1);
         
-        // Wave 2 (Crossing)
-        const k2 = 2.0 * Math.PI / 12.0;
+        // Wave 2 (Crossing 30)
+        const k2 = 2.0 * Math.PI / 30.0;
         const c2 = Math.sqrt(9.8 / k2);
-        const f2 = k2 * ((x * 0.7 + z * 0.8) - c2 * 0.7 * this.time);
-        const y2 = (0.20 / k2) * Math.sin(f2);
+        const f2 = k2 * ((x * 0.7 + z * 0.8) - c2 * 0.8 * this.time);
+        const y2 = (0.15 / k2) * Math.sin(f2);
         
         return this.waterLevel + y1 + y2;
     }
