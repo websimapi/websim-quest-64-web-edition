@@ -13,6 +13,7 @@ export class CombatSystem {
         this.center = new THREE.Vector3();
         
         this.activeEnemies = [];
+        this.defeatedEnemies = []; // Track who died this battle to spawn drops later
         this.projectiles = [];
         this.world = null; // Store reference
 
@@ -94,6 +95,7 @@ export class CombatSystem {
         this.active = true;
         this.world = world;
         this.center.copy(centerPos);
+        this.defeatedEnemies = []; // Reset
         
         // Find all enemies in radius + the primary one
         this.activeEnemies = allEnemies.filter(e => {
@@ -339,7 +341,7 @@ export class CombatSystem {
         const liveEnemies = this.activeEnemies.filter(e => e.mesh && e.hp > 0);
         if (liveEnemies.length === 0) {
             const xp = this.activeEnemies.reduce((sum, e) => sum + (e.xpValue || 10), 0);
-            return { status: 'VICTORY', xp: xp };
+            return { status: 'VICTORY', xp: xp, defeated: this.defeatedEnemies };
         }
 
         // Turn Logic
@@ -394,16 +396,19 @@ export class CombatSystem {
             
             if (result.result === 'HIT') {
                 this.audioManager.playSfx('hit');
-                result.target.takeDamage(result.damage);
+                if (result.target.takeDamage(result.damage)) {
+                    this.defeatedEnemies.push(result.target);
+                }
                 p.dispose();
                 this.projectiles.splice(i, 1);
             } 
             else if (result.result === 'HIT_AOE') {
                 this.audioManager.playSfx('hit');
-                result.targets.forEach(t => t.takeDamage(result.damage));
-                // Do NOT dispose immediately if we want lingering effects, but for now we do
-                // Actually ground targets might linger visually in update() until life runs out
-                // But damage triggers once.
+                result.targets.forEach(t => {
+                    if (t.takeDamage(result.damage)) {
+                        this.defeatedEnemies.push(t);
+                    }
+                });
             }
             else if (result.result === 'TIMEOUT') {
                 p.dispose();

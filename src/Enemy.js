@@ -106,6 +106,7 @@ export class Enemy {
         // Scale size slightly
         const sizeScale = 1.0 + Math.min(0.5, (level - 1) * 0.05);
         
+        this.lastPosition = new THREE.Vector3(x, this.yOffset, z);
         this.roamOrigin = new THREE.Vector3(x, this.yOffset, z);
         this.roamRadius = 20;
         this.roamTarget = this.roamOrigin.clone();
@@ -158,6 +159,9 @@ export class Enemy {
 
     update(dt, playerPos, world) {
         if (!this.mesh) return;
+        
+        // Update stored position before we move, just in case
+        this.lastPosition.copy(this.mesh.position);
 
         // Ensure Y is correct
         if (world) {
@@ -366,8 +370,26 @@ export class Enemy {
         return false;
     }
 
+    getDrop() {
+        const roll = Math.random();
+        
+        // Default Drop Table
+        // 30% chance for Herb
+        // 15% chance for HP Potion
+        // 15% chance for MP Potion
+        // 1% chance for Elixir
+        
+        if (roll < 0.01) return 'ELIXIR';
+        if (roll < 0.16) return 'MP_POTION';
+        if (roll < 0.31) return 'HP_POTION';
+        if (roll < 0.61) return 'HERB';
+        
+        return null;
+    }
+
     dispose() {
         if (this.mesh) {
+            this.lastPosition.copy(this.mesh.position); // Final save
             this.scene.remove(this.mesh);
             if (this.mesh.geometry) this.mesh.geometry.dispose();
             if (this.mesh.material) this.mesh.material.dispose();

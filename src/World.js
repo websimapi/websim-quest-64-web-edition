@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { Enemy } from './Enemy.js';
 import { Noise } from './Noise.js';
 import { GrassSystem } from './GrassSystem.js';
+import { Item } from './Item.js';
 
 export class World {
     constructor(scene) {
@@ -10,6 +11,7 @@ export class World {
         this.size = 2000; 
         this.segments = 256; // Higher res for smoother terrain
         this.enemies = [];
+        this.items = [];
         this.noise = new Noise();
         this.grassSystem = new GrassSystem(scene, this);
         
@@ -318,12 +320,20 @@ export class World {
         }
     }
 
-    update(dt, playerPos) {
+    spawnItem(type, position) {
+        const item = new Item(this.scene, type, position);
+        this.items.push(item);
+        return item;
+    }
+
+    update(dt, playerPos, camera) {
         this.enemies = this.enemies.filter(e => e.mesh !== null);
         this.enemies.forEach(e => {
              if(e.mesh) e.update(dt, playerPos, this);
         });
         
+        this.items.forEach(item => item.update(dt, camera));
+
         if (this.grassSystem) {
             this.grassSystem.update(dt);
         }

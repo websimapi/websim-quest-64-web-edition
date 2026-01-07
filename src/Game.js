@@ -14,6 +14,7 @@ export class Game {
         this.container = document.getElementById('game-container');
         this.aiTarget = null;
         this.aiActionTimer = 0;
+        this.targetItem = null; // Item player is walking towards
         
         // Setup Three.js
         this.scene = new THREE.Scene();
@@ -96,7 +97,28 @@ export class Game {
         mouse.y = -(y / window.innerHeight) * 2 + 1;
         this.raycaster.setFromCamera(mouse, this.camera);
 
-        // 1. Check Enemies (Priority)
+        // 1. Check Items (Priority over move, under enemies maybe? Priority 1 actually)
+        if (this.gameState === 'ROAMING' && this.world.items.length > 0) {
+             const itemMeshes = this.world.items.map(i => i.mesh);
+             const intersects = this.raycaster.intersectObjects(itemMeshes, true);
+             if (intersects.length > 0) {
+                 const hitObj = intersects[0].object;
+                 const targetItem = this.world.items.find(i => {
+                     let current = hitObj;
+                     while(current) { if (current === i.mesh) return true; current = current.parent; }
+                     return false;
+                 });
+
+                 if (targetItem) {
+                     this.player.navTarget = targetItem.position.clone(); // Walk to it
+                     this.targetItem = targetItem;
+                     this.uiManager.showMessage(targetItem.config.name, 1000);
+                     return;
+                 }
+             }
+        }
+
+        // 2. Check Enemies (Priority)
         const enemies = (this.gameState === 'BATTLE') 
             ? this.combatSystem.activeEnemies 
             : this.world.enemies.filter(e => e.hp > 0);
@@ -114,6 +136,7 @@ export class Game {
                 
                 if (target) {
                     target.highlight();
+                    this.targetItem = null; // Cancel item pickup
                     if (this.gameState === 'BATTLE') {
                         const result = this.combatSystem.tryFaceTarget(target);
                         if (!result.success && result.reason === 'Not enough movement') {
@@ -128,7 +151,7 @@ export class Game {
             }
         }
 
-        // 2. Check Ground (Move)
+        // 3. Check Ground (Move)
         if (this.world.ground) {
             const intersects = this.raycaster.intersectObject(this.world.ground);
             if (intersects.length > 0) {
@@ -136,6 +159,7 @@ export class Game {
                 // Update nav target - works for both states now
                 // CombatSystem update loop handles the stamina drain for this movement
                 this.player.navTarget = pt;
+                this.targetItem = null; // Cancel item pickup on manual move
             }
         }
     }
@@ -314,20 +338,32 @@ export class Game {
                 this.audioManager.playSfx('hit');
                 
                 let hitEnemies = [];
+                let dyingEnemies = [];
+
                 if (result.result === 'HIT') {
-                    result.target.takeDamage(result.damage);
+                    if (result.target.takeDamage(result.damage)) {
+                         dyingEnemies.push(result.target);
+                    }
                     hitEnemies.push(result.target);
                 } else {
-                    result.targets.forEach(t => t.takeDamage(result.damage));
+                    result.targets.forEach(t => {
+                        if (t.takeDamage(result.damage)) {
+                            dyingEnemies.push(t);
+                        }
+                    });
                     hitEnemies = result.targets;
                 }
                 
+                // Spawn drops for dead enemies
+                dyingEnemies.forEach(e => this.trySpawnDrop(e));
+
                 p.dispose();
                 this.roamingProjectiles.splice(i, 1);
 
                 // Trigger Battle with first hit enemy (only if not already in battle)
-                if (this.gameState !== 'BATTLE' && hitEnemies.length > 0 && hitEnemies[0].hp > 0) {
-                    this.startBattle(hitEnemies[0]);
+                const livingHit = hitEnemies.find(e => e.hp > 0);
+                if (this.gameState !== 'BATTLE' && livingHit) {
+                    this.startBattle(livingHit);
                 }
             }
             else if (result.result === 'TIMEOUT') {
@@ -336,9 +372,20 @@ export class Game {
             }
         }
 
+        // Item Pickup Logic
+        if (this.targetItem && this.world.items.includes(this.targetItem)) {
+            const dist = this.player.mesh.position.distanceTo(this.targetItem.position);
+            if (dist < 1.5) {
+                this.collectItem(this.targetItem);
+                this.targetItem = null;
+                this.player.navTarget = null;
+                this.player.isMoving = false;
+            }
+        }
+
         if (this.gameState === 'ROAMING') {
             this.player.update(dt, transformedInputs, this.world);
-            this.world.update(dt, this.player.mesh.position);
+            this.world.update(dt, this.player.mesh.position, this.camera);
             
             // Check for contact encounters
             for (let enemy of this.world.enemies) {
@@ -354,6 +401,10 @@ export class Game {
             const result = this.combatSystem.update(dt, transformedInputs, this.world);
             if (result.status === 'VICTORY') {
                 this.handleVictory(result.xp);
+                // Handle drops for all defeated enemies in battle
+                if (result.defeated && result.defeated.length > 0) {
+                    result.defeated.forEach(e => this.trySpawnDrop(e));
+                }
                 this.endBattle();
             } else if (result.status === 'ESCAPE') {
                 this.uiManager.showMessage("ESCAPED!", 2000);
@@ -373,6 +424,7 @@ export class Game {
     startBattle(enemy) {
         this.gameState = 'BATTLE';
         this.player.resetCooldowns();
+        this.targetItem = null; // Clear item targeting
         this.uiManager.showMessage("BATTLE START!", 2000);
         this.combatSystem.initBattle(this.player.mesh.position, enemy, this.world.enemies, this.world);
     }
@@ -400,6 +452,35 @@ export class Game {
                 this.player.stats.hp = this.player.stats.maxHp;
                 this.player.stats.mp = this.player.stats.maxMp;
             });
+        }
+    }
+
+    trySpawnDrop(enemy) {
+        const dropType = enemy.getDrop();
+        if (dropType) {
+            // Spawn where enemy was
+            this.world.spawnItem(dropType, enemy.lastPosition);
+        }
+    }
+
+    collectItem(item) {
+        if (!this.world.items.includes(item)) return;
+        
+        // Remove item
+        item.dispose();
+        const index = this.world.items.indexOf(item);
+        if (index > -1) this.world.items.splice(index, 1);
+        
+        // Apply effect
+        const config = item.config;
+        this.uiManager.showMessage(`Got ${config.name}!`, 1500);
+        this.audioManager.playSfx('cast'); // Reuse cast sound as pickup chime
+
+        if (config.stat === 'hp' || config.stat === 'all') {
+            this.player.stats.hp = Math.min(this.player.stats.maxHp, this.player.stats.hp + config.value);
+        }
+        if (config.stat === 'mp' || config.stat === 'all') {
+             this.player.stats.mp = Math.min(this.player.stats.maxMp, this.player.stats.mp + config.value);
         }
     }
 
