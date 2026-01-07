@@ -14,6 +14,7 @@ export class Game {
         this.container = document.getElementById('game-container');
         this.aiTarget = null;
         this.aiActionTimer = 0;
+        this.aiState = { mode: 'IDLE', timer: 0, nextScan: 0 };
         
         // Setup Three.js
         this.scene = new THREE.Scene();
@@ -162,71 +163,110 @@ export class Game {
     }
 
     updateAI(dt, inputs) {
-        if (this.gameState === 'ROAMING') {
-            // Cooldown for AI actions
-            if (this.aiActionTimer > 0) {
-                this.aiActionTimer -= dt;
-            }
+        if (this.gameState !== 'ROAMING') return;
 
-            // Find target if none or dead or too far
-            if (!this.aiTarget || this.aiTarget.hp <= 0 || this.aiTarget.mesh.position.distanceTo(this.player.mesh.position) > 40) {
-                // Get closest living enemy
-                let minDist = 999;
-                let closest = null;
-                for (let e of this.world.enemies) {
-                    if (e.hp > 0) {
-                        const d = e.mesh.position.distanceTo(this.player.mesh.position);
-                        if (d < minDist && d < 40) { minDist = d; closest = e; }
-                    }
+        // --- Combat Scan ---
+        if (this.aiState.nextScan <= 0) {
+            this.aiState.nextScan = 0.5;
+            let minDist = 999;
+            let closest = null;
+            for (let e of this.world.enemies) {
+                if (e.hp > 0) {
+                    const d = e.mesh.position.distanceTo(this.player.mesh.position);
+                    if (d < minDist && d < 40) { minDist = d; closest = e; }
                 }
-                this.aiTarget = closest;
             }
+            this.aiTarget = closest;
+        } else {
+            this.aiState.nextScan -= dt;
+        }
 
-            if (this.aiTarget) {
-                const pPos = this.player.mesh.position;
-                const tPos = this.aiTarget.mesh.position;
-                const dist = pPos.distanceTo(tPos);
+        // --- Combat State ---
+        if (this.aiTarget && this.aiTarget.hp > 0) {
+            this.player.navTarget = null;
+            if (this.aiActionTimer > 0) this.aiActionTimer -= dt;
 
-                // Intelligent Approach:
-                // If out of range (> 20), move closer.
-                // If in range (10-20), stop and cast.
-                // If too close (< 8), back off.
+            const pPos = this.player.mesh.position;
+            const tPos = this.aiTarget.mesh.position;
+            const dist = pPos.distanceTo(tPos);
 
-                if (dist > 18) {
-                    // Move towards
-                    const dir = new THREE.Vector3().subVectors(tPos, pPos).normalize();
-                    inputs.x = dir.x;
-                    inputs.y = -dir.z; 
-                } else if (dist < 8) {
-                    // Back off slightly to optimal range
-                    const dir = new THREE.Vector3().subVectors(pPos, tPos).normalize();
-                    inputs.x = dir.x;
-                    inputs.y = -dir.z;
-                } else {
-                    // Good range, stop and shoot
-                    inputs.x = 0;
-                    inputs.y = 0;
-                    
-                    if (this.aiActionTimer <= 0 && !this.player.castState.active) {
-                        this.player.faceTarget(tPos);
-                        
-                        this.aiActionTimer = 4.0; // Wait before next shot/move
-                        
-                        // Delay cast to allow rotation to align
-                        setTimeout(() => {
-                            if (this.gameState !== 'ROAMING') return;
-                            const elements = ['fire', 'water', 'earth', 'wind'];
-                            const el = elements[Math.floor(Math.random() * elements.length)];
-                            this.handleSpellCast(el);
-                        }, 400);
-                    }
-                }
+            if (dist > 18) {
+                const dir = new THREE.Vector3().subVectors(tPos, pPos).normalize();
+                inputs.x = dir.x;
+                inputs.y = -dir.z; 
+            } else if (dist < 8) {
+                const dir = new THREE.Vector3().subVectors(pPos, tPos).normalize();
+                inputs.x = dir.x;
+                inputs.y = -dir.z;
             } else {
-                 // Idle roam if no enemies
-                 inputs.x = Math.sin(Date.now() * 0.0005);
-                 inputs.y = Math.cos(Date.now() * 0.0005);
+                inputs.x = 0; inputs.y = 0;
+                if (this.aiActionTimer <= 0 && !this.player.castState.active) {
+                    this.player.faceTarget(tPos);
+                    this.aiActionTimer = 4.0;
+                    setTimeout(() => {
+                        if (this.gameState !== 'ROAMING') return;
+                        const elements = ['fire', 'water', 'earth', 'wind'];
+                        const el = elements[Math.floor(Math.random() * elements.length)];
+                        this.handleSpellCast(el);
+                    }, 400);
+                }
+            }
+            return;
+        }
+
+        // --- Exploration State ---
+        inputs.x = 0; inputs.y = 0;
+
+        if (this.aiState.mode === 'IDLE') {
+            this.aiState.timer -= dt;
+            if (Math.random() < 0.02) {
+                const r = this.player.mesh.position.clone().add(new THREE.Vector3(Math.random()-0.5, 0, Math.random()-0.5));
+                this.player.faceTarget(r);
+            }
+            if (this.aiState.timer <= 0) {
+                this.aiState.mode = 'WANDER';
+                this.aiState.timer = 0;
+                this.pickRandomDestination();
+            }
+        } 
+        else if (this.aiState.mode === 'WANDER') {
+            this.aiState.timer += dt;
+            if (!this.player.navTarget || this.aiState.timer > 15.0) {
+                this.player.navTarget = null;
+                this.aiState.mode = 'IDLE';
+                this.aiState.timer = 2.0 + Math.random() * 3.0;
             }
         }
+    }
+
+    pickRandomDestination() {
+        const range = 60;
+        const pPos = this.player.mesh.position;
+        let attempt = 0;
+        
+        while(attempt < 10) {
+            attempt++;
+            const angle = Math.random() * Math.PI * 2;
+            const r = 15 + Math.random() * range;
+            const tx = pPos.x + Math.cos(angle) * r;
+            const tz = pPos.z + Math.sin(angle) * r;
+            
+            // Bounds check
+            if (Math.abs(tx) > 900 || Math.abs(tz) > 900) continue;
+            
+            // Environmental checks
+            const h = this.world.getHeight(tx, tz);
+            if (h < 2.5) continue; // Avoid water
+            
+            const slope = this.world.getSlopeFactor(tx, tz);
+            if (slope > 0.8) continue; // Avoid cliffs
+            
+            this.player.navTarget = new THREE.Vector3(tx, h, tz);
+            return;
+        }
+        
+        this.aiState.mode = 'IDLE';
+        this.aiState.timer = 1.0;
     }
 
     spawnRoamingProjectile(element, config) {
