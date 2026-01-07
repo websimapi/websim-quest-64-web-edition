@@ -25,6 +25,10 @@ export class CombatSystem {
         this.turnTimer = 0;
         this.aiCastPending = false;
         this.roamingSystem = null;
+
+        // Player Turn Timer
+        this.maxTurnTime = 7.0;
+        this.currentTurnTime = 0;
     }
 
     getBattleAI(dt) {
@@ -139,6 +143,7 @@ export class CombatSystem {
     startPlayerTurn() {
         this.turn = 'PLAYER';
         this.currentMove = this.maxMove;
+        this.currentTurnTime = this.maxTurnTime;
     }
 
     tryFaceTarget(target) {
@@ -367,6 +372,16 @@ export class CombatSystem {
 
         if (this.turn === 'PLAYER') {
             canMove = this.currentMove > 0;
+
+            // Turn Timeout
+            if (!this.player.castState.active) {
+                this.currentTurnTime -= dt;
+                if (this.currentTurnTime <= 0) {
+                    this.currentTurnTime = 0;
+                    this.startEnemyTurn();
+                    return { status: 'CONTINUE' };
+                }
+            }
         } else if (this.turn === 'ENEMY') {
             canMove = false;
             const enemy = this.activeEnemies[this.enemyTurnIndex];

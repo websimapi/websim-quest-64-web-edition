@@ -11,6 +11,8 @@ export class UIManager {
         this.turnIndicator = document.getElementById('turn-indicator');
         this.moveBarContainer = document.getElementById('move-bar-container');
         this.moveBarFill = document.getElementById('move-bar-fill');
+        this.timerBarContainer = document.getElementById('timer-bar-container');
+        this.timerBarFill = document.getElementById('timer-bar-fill');
         this.messageBox = document.getElementById('message-box');
         this.levelupOverlay = document.getElementById('levelup-overlay');
         
@@ -239,14 +241,25 @@ export class UIManager {
 
             if (combatSystem.turn === 'PLAYER') {
                 this.moveBarContainer.style.display = 'block';
-                const pct = Math.max(0, (combatSystem.currentMove / combatSystem.maxMove) * 100);
-                this.moveBarFill.style.width = pct + '%';
+                const movePct = Math.max(0, (combatSystem.currentMove / combatSystem.maxMove) * 100);
+                this.moveBarFill.style.width = movePct + '%';
+
+                if (this.timerBarContainer && this.timerBarFill) {
+                    this.timerBarContainer.style.display = 'block';
+                    const timerPct = Math.max(0, (combatSystem.currentTurnTime / combatSystem.maxTurnTime) * 100);
+                    this.timerBarFill.style.width = timerPct + '%';
+                    
+                    if (timerPct < 25) this.timerBarFill.style.backgroundColor = '#d32f2f'; // Red warning
+                    else this.timerBarFill.style.backgroundColor = '#ff8800'; // Normal Orange
+                }
             } else {
                 this.moveBarContainer.style.display = 'none';
+                if (this.timerBarContainer) this.timerBarContainer.style.display = 'none';
             }
         } else {
             this.turnIndicator.style.display = 'none';
             this.moveBarContainer.style.display = 'none';
+            if (this.timerBarContainer) this.timerBarContainer.style.display = 'none';
         }
     }
 

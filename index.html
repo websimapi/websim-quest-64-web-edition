@@ -277,6 +277,24 @@
             background: #ffff00;
         }
 
+        #timer-bar-container {
+            position: absolute;
+            bottom: 205px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 200px;
+            height: 6px;
+            background: #333;
+            border: 1px solid white;
+            display: none;
+        }
+        #timer-bar-fill {
+            width: 100%;
+            height: 100%;
+            background: #ff8800;
+            transition: width 0.1s linear;
+        }
+
         #message-box {
             position: absolute;
             bottom: 20px;
@@ -354,6 +372,7 @@
         <div id="message-box" class="hud-element"></div>
         <div id="turn-indicator">PLAYER TURN</div>
         <div id="move-bar-container"><div id="move-bar-fill"></div></div>
+        <div id="timer-bar-container"><div id="timer-bar-fill"></div></div>
 
         <div id="spell-controls">
             <div id="spell-sub-1" class="spell-btn sub"></div>
