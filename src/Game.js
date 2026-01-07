@@ -19,9 +19,9 @@ export class Game {
         // Setup Three.js
         this.scene = new THREE.Scene();
         this.scene.background = new THREE.Color(0x87CEEB); // Sky blue
-        this.scene.fog = new THREE.Fog(0x87CEEB, 200, 700); // Much further fog
+        this.scene.fog = new THREE.Fog(0x87CEEB, 200, 2000); // Extended fog for better water visibility
 
-        this.camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 2000);
+        this.camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 3000);
         this.camera.position.set(0, 5, 10);
         
         this.renderer = new THREE.WebGLRenderer({ antialias: false });

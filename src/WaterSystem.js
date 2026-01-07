@@ -16,7 +16,7 @@ export class WaterSystem {
         // 1. Generate Heightmap Texture for depth effects
         this.generateHeightMap();
 
-        const size = 2000;
+        const size = 4000;
         const tileSize = 200;
         const divisions = 64; // Higher detail for smoother waves
         
@@ -273,10 +273,10 @@ export class WaterSystem {
     generateHeightMap() {
         if (!this.world) return;
         
-        const size = 256;
+        const size = 1024;
         const data = new Float32Array(size * size);
         
-        const worldBounds = 2000;
+        const worldBounds = 4000;
         const halfBounds = worldBounds / 2;
         
         for (let y = 0; y < size; y++) {
@@ -359,8 +359,8 @@ export class WaterSystem {
         
         let attempts = 0;
         while(!valid && attempts < 5) {
-            x = (Math.random() - 0.5) * 400; // Constrain bubbles to center area mainly
-            z = (Math.random() - 0.5) * 400;
+            x = (Math.random() - 0.5) * 1800; // Widen bubble spawn area to cover most of the world
+            z = (Math.random() - 0.5) * 1800;
             const h = this.world ? this.world.getHeight(x, z) : -10;
             
             if (h < this.waterLevel - 1.0) { // Valid water depth
