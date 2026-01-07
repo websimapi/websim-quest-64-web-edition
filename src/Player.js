@@ -154,7 +154,33 @@ export class Player {
                     const moveAmount = moveVec.multiplyScalar(this.speed * speedMult * dt);
                     const nextPos = this.mesh.position.clone().add(moveAmount);
 
-                    this.mesh.position.copy(nextPos);
+                    // Water Depth Limit (Collision)
+                    let blocked = false;
+                    if (world && world.waterSystem) {
+                        const waterLevel = world.waterSystem.waterLevel;
+                        const nextH = world.getHeight(nextPos.x, nextPos.z);
+                        const nextDepth = waterLevel - nextH;
+                        
+                        // Limit: Knee height (approx 0.5)
+                        if (nextDepth > 0.5) {
+                            const curH = world.getHeight(this.mesh.position.x, this.mesh.position.z);
+                            const curDepth = waterLevel - curH;
+                            
+                            // Only block if moving deeper into water
+                            if (nextDepth > curDepth) {
+                                blocked = true;
+                                // Reset nav target if blocked
+                                if (this.navTarget) {
+                                    this.navTarget = null;
+                                    this.isMoving = false;
+                                }
+                            }
+                        }
+                    }
+
+                    if (!blocked) {
+                        this.mesh.position.copy(nextPos);
+                    }
                 }
             }
         }
