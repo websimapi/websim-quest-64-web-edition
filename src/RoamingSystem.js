@@ -132,9 +132,22 @@ export class RoamingSystem {
                      let attempts = 0;
                      const currentPos = this.game.player.mesh.position;
                      
+                     // Get current forward direction to maintain momentum
+                     const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(this.game.player.mesh.quaternion);
+                     const currentAngle = Math.atan2(forward.z, forward.x);
+
                      while (!valid && attempts < 15) {
                         const range = 15 + Math.random() * 25;
-                        const angle = Math.random() * Math.PI * 2;
+                        
+                        // Bias angle towards current heading for the first few attempts to create continuous paths
+                        let angle;
+                        if (attempts < 8) {
+                            // +/- 90 degrees max bias, mostly forward
+                            angle = currentAngle + (Math.random() - 0.5) * 2.0; 
+                        } else {
+                            // If blocked/retrying, try random directions
+                            angle = Math.random() * Math.PI * 2;
+                        }
                         
                         const tx = currentPos.x + Math.cos(angle) * range;
                         const tz = currentPos.z + Math.sin(angle) * range;
@@ -189,7 +202,14 @@ export class RoamingSystem {
 
                  if (dist < 2.0 || this.roamTimer <= 0) {
                      this.roamState = 'IDLE';
-                     this.roamTimer = 2.0 + Math.random() * 4.0;
+                     // Reduce waiting time significantly for continuous movement feel
+                     // 20% chance to stop and look around, 80% chance to keep moving immediately
+                     if (Math.random() < 0.2) {
+                        this.roamTimer = 1.0 + Math.random() * 2.0;
+                     } else {
+                        this.roamTimer = 0.05 + Math.random() * 0.2; 
+                     }
+                     
                      inputs.x = 0; 
                      inputs.y = 0;
                  } else {
