@@ -15,7 +15,7 @@ export class World {
         this.items = [];
         this.noise = new Noise();
         this.grassSystem = new GrassSystem(scene, this);
-        this.waterSystem = new WaterSystem(scene);
+        this.waterSystem = new WaterSystem(scene, this);
         
         // Story Regions
         this.regions = [

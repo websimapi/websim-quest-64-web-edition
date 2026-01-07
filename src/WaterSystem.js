@@ -1,19 +1,24 @@
 import * as THREE from 'three';
 
 export class WaterSystem {
-    constructor(scene) {
+    constructor(scene, world) {
         this.scene = scene;
+        this.world = world;
         this.waterLevel = 1.0; 
         this.time = 0;
         this.chunks = [];
         this.material = null;
+        this.bubbles = null;
+        this.heightMap = null;
     }
 
     create() {
-        // Split water into smaller chunks for better depth sorting with NPCs
+        // 1. Generate Heightmap Texture for depth effects
+        this.generateHeightMap();
+
         const size = 2000;
         const tileSize = 200;
-        const divisions = 20;
+        const divisions = 32; // Higher detail for waves
         
         const geometry = new THREE.PlaneGeometry(tileSize, tileSize, divisions, divisions);
         geometry.rotateX(-Math.PI / 2);
@@ -21,9 +26,13 @@ export class WaterSystem {
         this.material = new THREE.ShaderMaterial({
             uniforms: {
                 uTime: { value: 0 },
-                uBaseColor: { value: new THREE.Color(0x004488) }, // Deep Blue
-                uShallowColor: { value: new THREE.Color(0x0088cc) }, // Cyan-ish
+                uBaseColor: { value: new THREE.Color(0x001e0f) }, // Deep Dark Teal
+                uShallowColor: { value: new THREE.Color(0x40a4df) }, // Bright Light Blue
+                uFoamColor: { value: new THREE.Color(0xffffff) },
                 uSunPosition: { value: new THREE.Vector3(100, 200, 100).normalize() },
+                uHeightMap: { value: this.heightMap },
+                uWorldSize: { value: size },
+                uWaterLevel: { value: this.waterLevel },
                 fogColor: { value: this.scene.fog.color },
                 fogNear: { value: this.scene.fog.near },
                 fogFar: { value: this.scene.fog.far }
@@ -32,52 +41,54 @@ export class WaterSystem {
                 #include <fog_pars_vertex>
                 
                 uniform float uTime;
-                varying float vHeight;
+                varying float vWaveHeight;
                 varying vec3 vWorldPos;
                 varying vec3 vNormal;
                 varying vec3 vViewPosition;
+                varying vec2 vUv;
 
-                // Improved Wave Function
-                vec3 calculateWave(vec3 p) {
-                    float t = uTime * 0.6;
+                // Gerstner Wave approximation
+                vec3 gerstnerWave(vec3 p, float steepness, float wavelength, float speed, vec2 dir) {
+                    float k = 2.0 * 3.14159 / wavelength;
+                    float c = sqrt(9.8 / k);
+                    float f = k * (dot(dir, p.xz) - c * speed * uTime);
+                    float a = steepness / k;
                     
-                    // Mix of frequencies for more natural look
-                    float y = 0.0;
-                    y += sin(p.x * 0.05 + t) * 0.5;
-                    y += cos(p.z * 0.03 + t * 0.8) * 0.5;
-                    y += sin(p.x * 0.15 + p.z * 0.1 + t * 1.5) * 0.2;
-                    y += cos(p.x * 0.2 - p.z * 0.15 + t * 2.0) * 0.1;
-                    
-                    // Sharp peaks, smooth troughs
-                    y = y - 0.3; // Lower average level slightly
-                    
-                    return vec3(p.x, p.y + y, p.z);
-                }
-
-                // Analytical Normal (Approximation)
-                vec3 calculateNormal(vec3 p) {
-                    float d = 0.1;
-                    vec3 p1 = calculateWave(p);
-                    vec3 p2 = calculateWave(p + vec3(d, 0, 0));
-                    vec3 p3 = calculateWave(p + vec3(0, 0, d));
-                    
-                    vec3 v1 = p2 - p1;
-                    vec3 v2 = p3 - p1;
-                    
-                    return normalize(cross(v2, v1));
+                    return vec3(
+                        dir.x * (a * cos(f)),
+                        a * sin(f),
+                        dir.y * (a * cos(f))
+                    );
                 }
 
                 void main() {
-                    vec3 pos = position;
-                    vec4 worldPos = modelMatrix * vec4(pos, 1.0);
+                    vec3 gridPos = position;
+                    vec4 worldPos = modelMatrix * vec4(gridPos, 1.0);
+                    vUv = worldPos.xz;
+
+                    vec3 p = worldPos.xyz;
                     
-                    vec3 displacedWorld = calculateWave(worldPos.xyz);
+                    // Sum of waves
+                    vec3 displacement = vec3(0.0);
+                    displacement += gerstnerWave(p, 0.2, 15.0, 0.5, vec2(1.0, 0.5));
+                    displacement += gerstnerWave(p, 0.15, 7.0, 0.8, vec2(0.7, 0.7));
+                    displacement += gerstnerWave(p, 0.1, 3.0, 1.2, vec2(-0.2, 1.0));
                     
-                    vHeight = displacedWorld.y - worldPos.y;
-                    vNormal = calculateNormal(worldPos.xyz);
-                    vWorldPos = displacedWorld;
+                    vec3 finalPos = p + displacement;
+                    vWaveHeight = finalPos.y - p.y;
                     
-                    vec4 mvPosition = viewMatrix * vec4(displacedWorld, 1.0);
+                    // Calc Normal (Analytical is better but standard finite diff is cheaper here)
+                    vec3 pA = finalPos;
+                    vec3 pB = p + vec3(0.1, 0.0, 0.0) + gerstnerWave(p + vec3(0.1, 0.0, 0.0), 0.2, 15.0, 0.5, vec2(1.0, 0.5)); // simplistic normal approx
+                    vec3 tangent = normalize(vec3(1.0, (pB.y - pA.y)*10.0, 0.0));
+                    vec3 binormal = vec3(0.0, 0.0, 1.0);
+                    vNormal = normalize(cross(binormal, tangent)); 
+                    // (Actually let's just use up vector perturbed by wave height for cheap look)
+                    vNormal = normalize(vec3(-displacement.x * 0.5, 1.0, -displacement.z * 0.5));
+
+                    vWorldPos = finalPos;
+                    
+                    vec4 mvPosition = viewMatrix * vec4(finalPos, 1.0);
                     gl_Position = projectionMatrix * mvPosition;
                     
                     vViewPosition = -mvPosition.xyz;
@@ -90,41 +101,70 @@ export class WaterSystem {
                 
                 uniform vec3 uBaseColor;
                 uniform vec3 uShallowColor;
+                uniform vec3 uFoamColor;
                 uniform vec3 uSunPosition;
+                uniform sampler2D uHeightMap;
+                uniform float uWorldSize;
+                uniform float uWaterLevel;
                 
-                varying float vHeight;
+                varying float vWaveHeight;
                 varying vec3 vWorldPos;
                 varying vec3 vNormal;
                 varying vec3 vViewPosition;
+                varying vec2 vUv;
 
                 void main() {
-                    // Base Color Mixing
-                    float mixFactor = smoothstep(-1.0, 1.5, vHeight);
-                    vec3 albedo = mix(uBaseColor, uShallowColor, mixFactor);
+                    // 1. Calculate Depth
+                    vec2 texUv = (vWorldPos.xz / uWorldSize) + 0.5;
+                    float terrainHeight = texture2D(uHeightMap, texUv).r;
                     
+                    // Depth relative to flat water level, adjusted by wave
+                    float currentWaterY = vWorldPos.y; // includes wave
+                    float waterDepth = uWaterLevel - terrainHeight; // Average depth
+                    float visualDepth = currentWaterY - terrainHeight; // Exact at this pixel
+                    
+                    // Safety clamp
+                    visualDepth = max(0.0, visualDepth);
+
+                    // 2. Shoreline Foam
+                    // If visual depth is small, we are near shore
+                    float foamMask = smoothstep(0.8, 0.0, visualDepth);
+                    
+                    // Add some wave-based foam modulation
+                    float waveFoam = smoothstep(0.3, 0.6, vWaveHeight + sin(vWorldPos.x * 0.5 + vWorldPos.z * 0.5) * 0.2);
+                    foamMask = max(foamMask, waveFoam * 0.5); // Foam on crests
+
+                    // 3. Color Mixing
+                    // Shallow = Light Blue, Deep = Dark
+                    float depthFactor = smoothstep(0.0, 8.0, visualDepth);
+                    vec3 waterColor = mix(uShallowColor, uBaseColor, depthFactor);
+                    
+                    // 4. Lighting
                     vec3 viewDir = normalize(vViewPosition);
                     vec3 normal = normalize(vNormal);
                     vec3 sunDir = normalize(uSunPosition);
                     
-                    // Specular (Sun reflection)
+                    // Specular
                     vec3 halfVector = normalize(sunDir + viewDir);
                     float NdotH = max(0.0, dot(normal, halfVector));
-                    float specular = pow(NdotH, 100.0) * 1.5; // Sharp highlight
+                    float specular = pow(NdotH, 80.0) * 1.0; 
                     
-                    // Fresnel (Sky reflection at angles)
-                    float fresnel = pow(1.0 - max(0.0, dot(viewDir, normal)), 4.0);
-                    vec3 skyColor = vec3(0.6, 0.8, 1.0);
+                    // Fresnel (Reflectivity)
+                    float fresnel = pow(1.0 - max(0.0, dot(viewDir, normal)), 3.0);
+                    fresnel = clamp(fresnel, 0.0, 1.0);
                     
-                    vec3 finalColor = mix(albedo, skyColor, fresnel * 0.6);
-                    finalColor += vec3(1.0) * specular;
+                    vec3 skyColor = vec3(0.7, 0.9, 1.0);
+                    vec3 finalColor = mix(waterColor, skyColor, fresnel * 0.4);
                     
-                    // Foam tips
-                    if (vHeight > 0.8) {
-                        float foam = smoothstep(0.8, 1.2, vHeight);
-                        finalColor = mix(finalColor, vec3(1.0), foam);
-                    }
+                    finalColor += specular;
+                    finalColor = mix(finalColor, uFoamColor, foamMask * 0.8); // Apply foam
 
-                    gl_FragColor = vec4(finalColor, 0.9);
+                    // 5. Opacity / Transparency
+                    // Deep water is more opaque, shallow is clear
+                    float opacity = mix(0.4, 0.95, depthFactor);
+                    opacity = mix(opacity, 1.0, foamMask); // Foam is opaque
+
+                    gl_FragColor = vec4(finalColor, opacity);
                     
                     #include <fog_fragment>
                 }
@@ -132,27 +172,137 @@ export class WaterSystem {
             transparent: true,
             fog: true,
             side: THREE.DoubleSide,
-            depthWrite: false 
+            depthWrite: false, // Important for seeing things behind
+            blending: THREE.NormalBlending
         });
 
-        // Create tiled grid
+        // Create Grid
         const range = size / 2;
         const step = tileSize;
         
         for (let x = -range; x < range; x += step) {
             for (let z = -range; z < range; z += step) {
                 const mesh = new THREE.Mesh(geometry, this.material);
-                // Center position
                 mesh.position.set(x + step/2, this.waterLevel, z + step/2);
-                
-                // Important: Disable frustum culling or increase bounding box
-                // because waves displace vertices outside the flat box
                 mesh.frustumCulled = false; 
-                
                 this.scene.add(mesh);
                 this.chunks.push(mesh);
             }
         }
+
+        // Add Bubbles System
+        this.createBubbles();
+    }
+
+    generateHeightMap() {
+        if (!this.world) return;
+        
+        const size = 256;
+        const data = new Float32Array(size * size);
+        
+        const worldBounds = 2000;
+        const halfBounds = worldBounds / 2;
+        
+        for (let y = 0; y < size; y++) {
+            for (let x = 0; x < size; x++) {
+                // Map texture UV to World XZ
+                const wx = (x / size) * worldBounds - halfBounds;
+                const wz = (y / size) * worldBounds - halfBounds;
+                
+                // Get Height (expensive call, but 256x256 is 65k calls, manageable)
+                const h = this.world.getHeight(wx, wz);
+                
+                // Store in Red channel
+                data[y * size + x] = h;
+            }
+        }
+        
+        const texture = new THREE.DataTexture(data, size, size, THREE.RedFormat, THREE.FloatType);
+        texture.magFilter = THREE.LinearFilter;
+        texture.minFilter = THREE.LinearFilter;
+        texture.needsUpdate = true;
+        
+        this.heightMap = texture;
+    }
+
+    createBubbles() {
+        const particleCount = 200;
+        const geo = new THREE.BufferGeometry();
+        const pos = new Float32Array(particleCount * 3);
+        const speeds = new Float32Array(particleCount);
+        
+        for(let i=0; i<particleCount; i++) {
+            this.resetBubble(pos, i, true);
+            speeds[i] = 0.5 + Math.random() * 1.5;
+        }
+        
+        geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+        geo.setAttribute('speed', new THREE.BufferAttribute(speeds, 1));
+        
+        const mat = new THREE.PointsMaterial({
+            color: 0xffffff,
+            size: 0.3,
+            transparent: true,
+            opacity: 0.6,
+            map: this.createBubbleTexture(),
+            depthWrite: false,
+            blending: THREE.AdditiveBlending
+        });
+        
+        this.bubbles = new THREE.Points(geo, mat);
+        this.scene.add(this.bubbles);
+    }
+    
+    createBubbleTexture() {
+        const cvs = document.createElement('canvas');
+        cvs.width = 32; cvs.height = 32;
+        const ctx = cvs.getContext('2d');
+        ctx.beginPath();
+        ctx.arc(16, 16, 14, 0, Math.PI*2);
+        ctx.fillStyle = 'rgba(255,255,255,0.8)';
+        ctx.fill();
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = 'rgba(255,255,255,0.4)';
+        ctx.stroke();
+        
+        // Highlight
+        ctx.beginPath();
+        ctx.arc(10, 10, 4, 0, Math.PI*2);
+        ctx.fillStyle = 'white';
+        ctx.fill();
+        
+        const tex = new THREE.CanvasTexture(cvs);
+        return tex;
+    }
+
+    resetBubble(posArray, i, initial = false) {
+        // Random position in world that is underwater
+        // We'll try a few times to find a water spot
+        let valid = false;
+        let x, y, z;
+        
+        let attempts = 0;
+        while(!valid && attempts < 5) {
+            x = (Math.random() - 0.5) * 400; // Constrain bubbles to center area mainly
+            z = (Math.random() - 0.5) * 400;
+            const h = this.world ? this.world.getHeight(x, z) : -10;
+            
+            if (h < this.waterLevel - 1.0) { // Valid water depth
+                const depth = this.waterLevel - h;
+                y = h + Math.random() * depth;
+                valid = true;
+            }
+            attempts++;
+        }
+        
+        if (!valid) {
+             // Fallback
+             x = 0; z = 0; y = -100; // Hide
+        }
+
+        posArray[i*3] = x;
+        posArray[i*3+1] = y;
+        posArray[i*3+2] = z;
     }
 
     update(dt) {
@@ -160,15 +310,32 @@ export class WaterSystem {
         if (this.material) {
             this.material.uniforms.uTime.value = this.time;
         }
+        
+        // Update Bubbles
+        if (this.bubbles && this.world) {
+            const positions = this.bubbles.geometry.attributes.position.array;
+            const speeds = this.bubbles.geometry.attributes.speed.array;
+            
+            for(let i=0; i<speeds.length; i++) {
+                // Move up
+                positions[i*3+1] += speeds[i] * dt;
+                
+                // Wiggle
+                positions[i*3] += Math.sin(this.time + i) * dt * 0.5;
+                
+                // Check surface
+                if (positions[i*3+1] > this.waterLevel) {
+                    this.resetBubble(positions, i);
+                }
+            }
+            this.bubbles.geometry.attributes.position.needsUpdate = true;
+        }
     }
 
     getHeightAt(x, z) {
-        // Updated physics approx
-        const t = this.time * 0.8;
-        const wave1 = Math.sin(x * 0.05 + t);
-        const wave2 = Math.cos(z * 0.04 + t * 0.8);
-        const wave3 = Math.sin(x * 0.1 + z * 0.1 + t * 1.5) * 0.5;
-        const y = (wave1 + wave2 + wave3) * 0.6;
+        const t = this.time * 0.5;
+        // Match approximate wave shape from shader for physics
+        const y = Math.sin(x * 0.2 + t) * 0.15 + Math.cos(z * 0.15 + t*0.8) * 0.15;
         return this.waterLevel + y;
     }
 }
