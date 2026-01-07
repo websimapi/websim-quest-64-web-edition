@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { Enemy } from './Enemy.js';
 import { Noise } from './Noise.js';
 import { GrassSystem } from './GrassSystem.js';
+import { WaterSystem } from './WaterSystem.js';
 import { Item } from './Item.js';
 
 export class World {
@@ -14,6 +15,7 @@ export class World {
         this.items = [];
         this.noise = new Noise();
         this.grassSystem = new GrassSystem(scene, this);
+        this.waterSystem = new WaterSystem(scene);
         
         // Story Regions
         this.regions = [
@@ -79,11 +81,8 @@ export class World {
             }
             
             // Water/Beach level
-            if (h < 2) {
-                color.setHex(0xe0c080); // Sand edge
-            }
-            if (h < 0) {
-                color.setHex(0x224488); // Underwater (not doing real water yet)
+            if (h < 4) {
+                color.setHex(0xe0c080); // Sand edge / Underwater Sand
             }
 
             colors.push(color.r, color.g, color.b);
@@ -107,6 +106,9 @@ export class World {
         this.generateDetails();
         this.generateEnemies();
         
+        // Generate Water
+        this.waterSystem.create();
+
         // Generate Advanced Grass
         if (this.grassTexture) {
             this.grassSystem.generate(this.grassTexture, player);
@@ -336,6 +338,9 @@ export class World {
 
         if (this.grassSystem) {
             this.grassSystem.update(dt);
+        }
+        if (this.waterSystem) {
+            this.waterSystem.update(dt);
         }
     }
 }

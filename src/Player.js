@@ -14,6 +14,7 @@ export class Player {
         this.mesh = this.visuals.mesh; // Proxy mesh for compatibility
 
         this.speed = 8;
+        this.currentSpeed = 8;
         this.isMoving = false;
         this.aiControlled = true;
         
@@ -115,6 +116,15 @@ export class Player {
                 }
             }
 
+            // Water Physics Pre-calc
+            let speedMult = 1.0;
+            if (world && world.waterSystem) {
+                const waterH = world.waterSystem.getHeightAt(this.mesh.position.x, this.mesh.position.z);
+                if (this.mesh.position.y < waterH) {
+                    speedMult = 0.5; // Underwater penalty
+                }
+            }
+
             if (this.isMoving) {
                 this.targetRotation = null; // User input overrides auto-turn
 
@@ -141,7 +151,7 @@ export class Player {
                     this.mesh.quaternion.slerp(targetQuat, 10 * dt);
 
                     // Move
-                    const moveAmount = moveVec.multiplyScalar(this.speed * dt);
+                    const moveAmount = moveVec.multiplyScalar(this.speed * speedMult * dt);
                     const nextPos = this.mesh.position.clone().add(moveAmount);
 
                     this.mesh.position.copy(nextPos);
