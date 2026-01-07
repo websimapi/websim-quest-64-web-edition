@@ -83,14 +83,27 @@ export class CombatSystem {
                  
                  // 2. Choose Element
                  const elements = ['fire', 'water', 'earth', 'wind'];
-                 const el = elements[Math.floor(Math.random() * elements.length)];
+                 // Pick ready spell (no cooldown)
+                 let el = elements[Math.floor(Math.random() * elements.length)];
+                 for (let i = 0; i < 4; i++) {
+                     const check = elements[Math.floor(Math.random() * elements.length)];
+                     if (this.player.cooldowns[check] <= 0) {
+                         el = check;
+                         break;
+                     }
+                 }
                  
                  // 3. Cast
                  this.playerCast(el);
+                 this.aiActions = (this.aiActions || 0) + 1;
                  
-                 // 4. Reset timer
-                 this.turnTimer = -2.0; // Pause before next action logic
-                 setTimeout(()=> { this.aiCastPending = false; }, 2000);
+                 // 4. Decide next (Rapid Fire)
+                 // If we have plenty of time left and haven't acted twice, try to cast again quickly
+                 const canActAgain = this.aiActions < 2 && this.currentTurnTime > 2.5;
+                 const delay = canActAgain ? 0.5 : 2.0; // 0.5s gap vs 2.0s end turn
+                 
+                 this.turnTimer = -delay; // Pause logic slightly longer than the latch
+                 setTimeout(()=> { this.aiCastPending = false; }, delay * 1000);
              }
         }
         return inputs;
@@ -144,6 +157,7 @@ export class CombatSystem {
         this.turn = 'PLAYER';
         this.currentMove = this.maxMove;
         this.currentTurnTime = this.maxTurnTime;
+        this.aiActions = 0;
     }
 
     tryFaceTarget(target) {

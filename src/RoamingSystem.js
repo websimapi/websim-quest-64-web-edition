@@ -7,6 +7,11 @@ export class RoamingSystem {
         this.projectiles = [];
         this.aiTarget = null;
         this.aiActionTimer = 0;
+        
+        // Roaming State
+        this.roamState = 'IDLE';
+        this.roamTimer = 0;
+        this.roamTarget = new THREE.Vector3();
     }
 
     update(dt) {
@@ -116,9 +121,45 @@ export class RoamingSystem {
                 }
             }
         } else {
-             // Idle roam if no enemies
-             inputs.x = Math.sin(Date.now() * 0.0005);
-             inputs.y = Math.cos(Date.now() * 0.0005);
+             // Smart Exploring Logic
+             if (this.roamState === 'IDLE') {
+                 this.roamTimer -= dt;
+                 if (this.roamTimer <= 0) {
+                     // Pick a destination
+                     const range = 15 + Math.random() * 25;
+                     const angle = Math.random() * Math.PI * 2;
+                     
+                     const currentPos = this.game.player.mesh.position;
+                     this.roamTarget.set(
+                         currentPos.x + Math.cos(angle) * range,
+                         currentPos.y,
+                         currentPos.z + Math.sin(angle) * range
+                     );
+                     
+                     this.roamState = 'MOVING';
+                     this.roamTimer = 8.0; // Give up if taking too long
+                 }
+                 // Stay still
+                 inputs.x = 0;
+                 inputs.y = 0;
+             } 
+             else if (this.roamState === 'MOVING') {
+                 this.roamTimer -= dt;
+                 const currentPos = this.game.player.mesh.position;
+                 const dist = currentPos.distanceTo(this.roamTarget);
+                 
+                 if (dist < 1.0 || this.roamTimer <= 0) {
+                     this.roamState = 'IDLE';
+                     this.roamTimer = 2.0 + Math.random() * 4.0;
+                     inputs.x = 0; 
+                     inputs.y = 0;
+                 } else {
+                     // Move towards target
+                     const dir = new THREE.Vector3().subVectors(this.roamTarget, currentPos).normalize();
+                     inputs.x = dir.x;
+                     inputs.y = -dir.z; // Input system expects -y for forward Z
+                 }
+             }
         }
     }
 
