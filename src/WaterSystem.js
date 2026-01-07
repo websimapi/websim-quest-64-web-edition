@@ -30,6 +30,7 @@ export class WaterSystem {
                 uShallowColor: { value: new THREE.Color(0x40a4df) }, // Bright Light Blue
                 uFoamColor: { value: new THREE.Color(0xffffff) },
                 uSunPosition: { value: new THREE.Vector3(100, 200, 100).normalize() },
+                uTideDirection: { value: new THREE.Vector2(1, 0) },
                 uHeightMap: { value: this.heightMap },
                 uWorldSize: { value: size },
                 uWaterLevel: { value: this.waterLevel },
@@ -47,6 +48,8 @@ export class WaterSystem {
                 varying vec3 vViewPosition;
                 varying vec2 vUv;
 
+                uniform vec2 uTideDirection;
+
                 // Gerstner Wave
                 vec3 gerstnerWave(vec3 p, float steepness, float wavelength, float speed, vec2 dir) {
                     float k = 2.0 * 3.14159 / wavelength;
@@ -60,6 +63,41 @@ export class WaterSystem {
                         dir.y * (a * cos(f))
                     );
                 }
+                
+                vec2 rotate(vec2 v, float a) {
+                    float s = sin(a);
+                    float c = cos(a);
+                    return vec2(c * v.x - s * v.y, s * v.x + c * v.y);
+                }
+
+                vec3 getDisplacement(vec3 p) {
+                    float dist = length(p.xz);
+                    
+                    // Ocean Factor: 0.0 near center (Inland), 1.0 far out (Ocean)
+                    float oceanFactor = smoothstep(400.0, 900.0, dist);
+                    
+                    vec3 disp = vec3(0.0);
+                    
+                    // 1. Ocean Swell (Main Tide) - Only strong in ocean
+                    // Use dynamic tide direction
+                    disp += gerstnerWave(p, 0.35 * oceanFactor, 90.0, 0.8, uTideDirection);
+                    
+                    // 2. Crossing Ocean Chop
+                    vec2 chopDir = rotate(uTideDirection, 0.7);
+                    disp += gerstnerWave(p, 0.25 * oceanFactor, 45.0, 1.0, chopDir);
+                    
+                    // 3. Inland/Local Ripples (Always present but smaller)
+                    // Chaotic direction for "pond" feel
+                    vec2 rippleDir = normalize(vec2(sin(p.x * 0.05), cos(p.z * 0.05)));
+                    float pondDamp = 1.0 - (oceanFactor * 0.5); // Slightly dampen in high seas to prevent noise
+                    disp += gerstnerWave(p, 0.08 * pondDamp, 12.0, 1.5, rippleDir);
+                    
+                    // 4. Micro Detail
+                    vec2 microDir = rotate(uTideDirection, -0.5);
+                    disp += gerstnerWave(p, 0.03, 5.0, 2.5, microDir);
+                    
+                    return disp;
+                }
 
                 void main() {
                     vec3 gridPos = position;
@@ -68,34 +106,21 @@ export class WaterSystem {
 
                     vec3 p = worldPos.xyz;
                     
-                    // Directional Waves (Longer wavelength for smoother look)
-                    vec3 displacement = vec3(0.0);
-                    
-                    // Major Swell
-                    displacement += gerstnerWave(p, 0.15, 60.0, 0.5, normalize(vec2(1.0, 0.3)));
-                    // Crossing Swell
-                    displacement += gerstnerWave(p, 0.15, 30.0, 0.8, normalize(vec2(0.7, 0.8)));
-                    // Detail Swell (Reduced intensity, larger wavelength)
-                    displacement += gerstnerWave(p, 0.10, 15.0, 1.0, normalize(vec2(0.9, 0.1)));
+                    vec3 displacement = getDisplacement(p);
                     
                     vec3 finalPos = p + displacement;
                     vWaveHeight = finalPos.y - p.y;
                     
                     // Analytical Normal Approximation via Finite Difference
-                    float delta = 0.5; // Larger delta for smoother normal
+                    float delta = 0.5; 
                     vec3 pX = p + vec3(delta, 0.0, 0.0);
-                    vec3 dX = vec3(0.0);
-                    dX += gerstnerWave(pX, 0.15, 60.0, 0.5, normalize(vec2(1.0, 0.3)));
-                    dX += gerstnerWave(pX, 0.15, 30.0, 0.8, normalize(vec2(0.7, 0.8)));
-                    dX += gerstnerWave(pX, 0.10, 15.0, 1.0, normalize(vec2(0.9, 0.1)));
-                    vec3 finalX = pX + dX;
+                    vec3 finalX = pX + getDisplacement(pX);
                     
                     vec3 pZ = p + vec3(0.0, 0.0, delta);
-                    vec3 dZ = vec3(0.0);
-                    dZ += gerstnerWave(pZ, 0.15, 60.0, 0.5, normalize(vec2(1.0, 0.3)));
-                    dZ += gerstnerWave(pZ, 0.15, 30.0, 0.8, normalize(vec2(0.7, 0.8)));
-                    dZ += gerstnerWave(pZ, 0.10, 15.0, 1.0, normalize(vec2(0.9, 0.1)));
-                    vec3 finalZ = pZ + dZ;
+                    vec3 finalZ = pZ + getDisplacement(pZ);
+                    
+                    vec3 tangentX = finalX - finalPos;
+                    vec3 tangentZ = finalZ - finalPos;
                     
                     vec3 tangentX = finalX - finalPos;
                     vec3 tangentZ = finalZ - finalPos; // order matters for cross product
@@ -370,6 +395,11 @@ export class WaterSystem {
         this.time += dt;
         if (this.material) {
             this.material.uniforms.uTime.value = this.time;
+            
+            // Rotate tide slowly
+            const tideSpeed = 0.05; // Slow shift
+            const tideAngle = this.time * tideSpeed;
+            this.material.uniforms.uTideDirection.value.set(Math.cos(tideAngle), Math.sin(tideAngle));
         }
         
         // Update Bubbles
@@ -394,19 +424,27 @@ export class WaterSystem {
     }
 
     getHeightAt(x, z) {
-        // Simplified Gerstner approximation for CPU physics (Approximating new shader waves)
-        // Wave 1 (Major Swell 60)
-        const k1 = 2.0 * Math.PI / 60.0;
-        const c1 = Math.sqrt(9.8 / k1);
-        const f1 = k1 * ((x * 1.0 + z * 0.3) - c1 * 0.5 * this.time);
-        const y1 = (0.15 / k1) * Math.sin(f1);
+        // Approximate physics height
+        const dist = Math.sqrt(x*x + z*z);
+        const oceanFactor = Math.min(1.0, Math.max(0.0, (dist - 400) / 500));
         
-        // Wave 2 (Crossing 30)
-        const k2 = 2.0 * Math.PI / 30.0;
-        const c2 = Math.sqrt(9.8 / k2);
-        const f2 = k2 * ((x * 0.7 + z * 0.8) - c2 * 0.8 * this.time);
-        const y2 = (0.15 / k2) * Math.sin(f2);
+        // Large Swell (Ocean only)
+        let y = 0;
+        if (oceanFactor > 0.1) {
+             const t = this.time * 0.8;
+             // Tide dir approx
+             const tideAngle = t * 0.05; // Matches update
+             const tx = Math.cos(tideAngle);
+             const tz = Math.sin(tideAngle);
+             
+             const k = 2.0 * Math.PI / 90.0;
+             const phase = k * ((x * tx + z * tz) - 8.0 * t); // Speed approx
+             y += oceanFactor * 2.0 * Math.sin(phase);
+        }
         
-        return this.waterLevel + y1 + y2;
+        // Inland Ripple
+        y += 0.2 * Math.sin(x * 0.5 + this.time) * Math.cos(z * 0.5 + this.time);
+        
+        return this.waterLevel + y;
     }
 }
