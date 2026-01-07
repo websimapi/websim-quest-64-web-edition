@@ -352,6 +352,13 @@ export class Player {
         this.targetRotation = quat;
     }
 
+    faceTarget(pos) {
+        const dummy = new THREE.Object3D();
+        dummy.position.copy(this.mesh.position);
+        dummy.lookAt(pos.x, this.mesh.position.y, pos.z);
+        this.smoothLookAt(dummy.quaternion);
+    }
+
     startCasting(spellConfig, onComplete) {
         this.castState.active = true;
         this.castState.maxTime = spellConfig.castTime || 1.0;

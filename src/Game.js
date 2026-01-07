@@ -196,37 +196,45 @@ export class Game {
         mouse.y = -(y / window.innerHeight) * 2 + 1;
         this.raycaster.setFromCamera(mouse, this.camera);
 
-        if (this.gameState === 'BATTLE') {
-            // Check enemies
-            const enemies = this.combatSystem.activeEnemies.map(e => e.mesh).filter(m => m);
-            if (enemies.length > 0) {
-                const intersects = this.raycaster.intersectObjects(enemies, true);
-                if (intersects.length > 0) {
-                    const hitObj = intersects[0].object;
-                    const target = this.combatSystem.activeEnemies.find(e => {
-                        let current = hitObj;
-                        while(current) { if (current === e.mesh) return true; current = current.parent; }
-                        return false;
-                    });
-                    if (target) {
+        // 1. Check Enemies (Priority)
+        const enemies = (this.gameState === 'BATTLE') 
+            ? this.combatSystem.activeEnemies 
+            : this.world.enemies.filter(e => e.hp > 0);
+            
+        const enemyMeshes = enemies.map(e => e.mesh).filter(m => m);
+        if (enemyMeshes.length > 0) {
+            const intersects = this.raycaster.intersectObjects(enemyMeshes, true);
+            if (intersects.length > 0) {
+                const hitObj = intersects[0].object;
+                const target = enemies.find(e => {
+                    let current = hitObj;
+                    while(current) { if (current === e.mesh) return true; current = current.parent; }
+                    return false;
+                });
+                
+                if (target) {
+                    if (this.gameState === 'BATTLE') {
                         const result = this.combatSystem.tryFaceTarget(target);
                         if (!result.success && result.reason === 'Not enough movement') {
                             this.showMessage("Not enough movement!", 1000);
                         }
-                        return; // Handled
+                    } else {
+                        // Roaming: Just face them
+                        this.player.faceTarget(target.mesh.position);
                     }
+                    return; // Handled enemy click
                 }
             }
-        } else if (this.gameState === 'ROAMING') {
-            // Ground Click to Move
-            if (this.world.ground) {
-                const intersects = this.raycaster.intersectObject(this.world.ground);
-                if (intersects.length > 0) {
-                    const pt = intersects[0].point;
-                    this.player.navTarget = pt;
-                    // Create small visual marker?
-                    // Not crucial but nice
-                }
+        }
+
+        // 2. Check Ground (Move)
+        if (this.world.ground) {
+            const intersects = this.raycaster.intersectObject(this.world.ground);
+            if (intersects.length > 0) {
+                const pt = intersects[0].point;
+                // Update nav target - works for both states now
+                // CombatSystem update loop handles the stamina drain for this movement
+                this.player.navTarget = pt;
             }
         }
     }

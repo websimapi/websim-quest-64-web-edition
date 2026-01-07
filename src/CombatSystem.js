@@ -97,11 +97,7 @@ export class CombatSystem {
 
         if (this.currentMove >= cost) {
             this.currentMove -= cost;
-            
-            const dummy = new THREE.Object3D();
-            dummy.position.copy(playerPos);
-            dummy.lookAt(targetPos.x, playerPos.y, targetPos.z);
-            this.player.smoothLookAt(dummy.quaternion);
+            this.player.faceTarget(targetPos);
             return { success: true };
         } else {
             return { success: false, reason: 'Not enough movement' };
@@ -284,14 +280,7 @@ export class CombatSystem {
         let canMove = false;
 
         if (this.turn === 'PLAYER') {
-            // Check Move Stamina
-            if (this.currentMove > 0 && (inputs.x !== 0 || inputs.y !== 0)) {
-                canMove = true;
-                this.currentMove -= dt * this.player.speed; 
-                if (this.currentMove < 0) this.currentMove = 0;
-            } else if (this.currentMove <= 0) {
-                canMove = false;
-            }
+            canMove = this.currentMove > 0;
         } else if (this.turn === 'ENEMY') {
             canMove = false;
             const enemy = this.activeEnemies[this.enemyTurnIndex];
@@ -309,6 +298,11 @@ export class CombatSystem {
         }
 
         this.player.update(dt, inputs, world, this.center, this.radius, canMove);
+        
+        if (this.turn === 'PLAYER' && this.player.isMoving) {
+            this.currentMove -= dt * this.player.speed;
+            if (this.currentMove < 0) this.currentMove = 0;
+        }
         
         const dist = this.player.mesh.position.distanceTo(this.center);
         
