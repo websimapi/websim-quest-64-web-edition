@@ -4,6 +4,7 @@ import { World } from './World.js';
 import { Player } from './Player.js';
 import { CombatSystem } from './CombatSystem.js';
 import { AudioManager } from './AudioManager.js';
+import { SpellProjectile, getSpellConfig } from './Spells.js';
 
 export class Game {
     constructor(audioCtx) {
@@ -37,6 +38,25 @@ export class Game {
         this.clock = new THREE.Clock();
         this.gameState = 'ROAMING'; // ROAMING, BATTLE, MENU
         this.messageTimer = null;
+        
+        this.roamingProjectiles = [];
+        
+        this.cameraState = {
+            radius: 12,
+            theta: Math.PI,
+            phi: Math.PI * 0.35,
+            target: new THREE.Vector3()
+        };
+        
+        this.inputState = {
+            down: false,
+            startX: 0,
+            startY: 0,
+            lastX: 0,
+            lastY: 0,
+            isDragging: false,
+            startTime: 0
+        };
     }
 
     async start() {
@@ -119,41 +139,93 @@ export class Game {
            } 
         });
 
-        // Battle Interaction (Click Enemy to Face)
-        this.renderer.domElement.addEventListener('click', (e) => this.handleSceneClick(e));
+        // Pointer Events for Camera & Interaction
+        const dom = this.renderer.domElement;
+        
+        dom.addEventListener('pointerdown', (e) => {
+            this.inputState.down = true;
+            this.inputState.startX = e.clientX;
+            this.inputState.startY = e.clientY;
+            this.inputState.lastX = e.clientX;
+            this.inputState.lastY = e.clientY;
+            this.inputState.startTime = Date.now();
+            this.inputState.isDragging = false;
+        });
+
+        dom.addEventListener('pointermove', (e) => {
+            if (!this.inputState.down) return;
+
+            const dx = e.clientX - this.inputState.lastX;
+            const dy = e.clientY - this.inputState.lastY;
+            
+            // Check drag threshold
+            const dist = Math.sqrt((e.clientX - this.inputState.startX)**2 + (e.clientY - this.inputState.startY)**2);
+            if (dist > 5) this.inputState.isDragging = true;
+
+            if (this.inputState.isDragging) {
+                // Rotate Camera
+                const sensitivity = 0.005;
+                this.cameraState.theta -= dx * sensitivity;
+                this.cameraState.phi -= dy * sensitivity;
+                
+                // Clamp elevation
+                this.cameraState.phi = Math.max(0.1, Math.min(Math.PI / 2 - 0.1, this.cameraState.phi));
+            }
+
+            this.inputState.lastX = e.clientX;
+            this.inputState.lastY = e.clientY;
+        });
+
+        dom.addEventListener('pointerup', (e) => {
+            this.inputState.down = false;
+            
+            // Tap Detection
+            if (!this.inputState.isDragging && (Date.now() - this.inputState.startTime) < 300) {
+                this.handleTap(e.clientX, e.clientY);
+            }
+        });
     }
 
-    handleSceneClick(event) {
-        if (this.gameState !== 'BATTLE') return;
+    handleTap(x, y) {
+        // Prevent click if clicking UI
+        const el = document.elementFromPoint(x, y);
+        if (el && el !== this.renderer.domElement) return;
 
         const mouse = new THREE.Vector2();
-        mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
-        mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
-
+        mouse.x = (x / window.innerWidth) * 2 - 1;
+        mouse.y = -(y / window.innerHeight) * 2 + 1;
         this.raycaster.setFromCamera(mouse, this.camera);
 
-        // Raycast against enemies
-        const enemies = this.combatSystem.activeEnemies.map(e => e.mesh).filter(m => m);
-        if (enemies.length === 0) return;
-
-        const intersects = this.raycaster.intersectObjects(enemies, true);
-
-        if (intersects.length > 0) {
-            const hitObj = intersects[0].object;
-            // Find the enemy wrapper
-            const target = this.combatSystem.activeEnemies.find(e => {
-                let current = hitObj;
-                while(current) {
-                    if (current === e.mesh) return true;
-                    current = current.parent;
+        if (this.gameState === 'BATTLE') {
+            // Check enemies
+            const enemies = this.combatSystem.activeEnemies.map(e => e.mesh).filter(m => m);
+            if (enemies.length > 0) {
+                const intersects = this.raycaster.intersectObjects(enemies, true);
+                if (intersects.length > 0) {
+                    const hitObj = intersects[0].object;
+                    const target = this.combatSystem.activeEnemies.find(e => {
+                        let current = hitObj;
+                        while(current) { if (current === e.mesh) return true; current = current.parent; }
+                        return false;
+                    });
+                    if (target) {
+                        const result = this.combatSystem.tryFaceTarget(target);
+                        if (!result.success && result.reason === 'Not enough movement') {
+                            this.showMessage("Not enough movement!", 1000);
+                        }
+                        return; // Handled
+                    }
                 }
-                return false;
-            });
-
-            if (target) {
-                const result = this.combatSystem.tryFaceTarget(target);
-                if (!result.success && result.reason === 'Not enough movement') {
-                    this.showMessage("Not enough movement!", 1000);
+            }
+        } else if (this.gameState === 'ROAMING') {
+            // Ground Click to Move
+            if (this.world.ground) {
+                const intersects = this.raycaster.intersectObject(this.world.ground);
+                if (intersects.length > 0) {
+                    const pt = intersects[0].point;
+                    this.player.navTarget = pt;
+                    // Create small visual marker?
+                    // Not crucial but nice
                 }
             }
         }
@@ -161,24 +233,78 @@ export class Game {
 
     handleSpellCast(element) {
         if (this.gameState === 'ROAMING') {
-            // Visual only
-            this.player.castSpell(element); 
+            if (this.player.castState.active) return;
+            const config = getSpellConfig(element, this.player.spirits[element], this.player.stats.hp, this.player.stats.maxHp);
+            
+            // Check MP
+            if (this.player.stats.mp < config.cost) {
+                this.showMessage("Not enough MP!", 1000);
+                return;
+            }
+
+            this.player.startCasting(config, () => {
+                this.player.stats.mp -= config.cost;
+                this.spawnRoamingProjectile(element, config);
+            });
+            
         } else if (this.gameState === 'BATTLE') {
             this.combatSystem.playerCast(element);
         }
     }
 
+    spawnRoamingProjectile(element, config) {
+        if (config.type === 'heal') {
+            // Self heal logic duplication from CombatSystem (simplified)
+            this.player.stats.hp = Math.min(this.player.stats.maxHp, this.player.stats.hp + config.power);
+            this.audioManager.playSfx('cast');
+            return;
+        }
+
+        const staffState = this.player.getStaffTipWorldState();
+        let sfx = 'wind';
+        if (element === 'fire') sfx = 'fire';
+        if (element === 'earth') sfx = 'hit';
+        this.audioManager.playSfx(sfx);
+
+        // Aim forward based on player facing
+        const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(this.player.mesh.quaternion);
+        const spawnPos = staffState.position.clone();
+        const aimObj = new THREE.Object3D();
+        aimObj.position.copy(spawnPos);
+        
+        // Aim parallel to ground if ground spell, or just straight forward
+        const targetPos = spawnPos.clone().add(forward.multiplyScalar(20));
+        targetPos.y = spawnPos.y; // Keep level
+        aimObj.lookAt(targetPos);
+
+        const proj = new SpellProjectile(
+            this.scene,
+            spawnPos,
+            aimObj.quaternion,
+            config,
+            this.world,
+            null // No specific target
+        );
+        this.roamingProjectiles.push(proj);
+    }
+
     updateCamera() {
-        // Classic 3rd person follow
-        const targetPos = this.player.mesh.position.clone();
-        targetPos.y += 2;
+        // Orbit Camera
+        const playerPos = this.player.mesh.position;
+        const center = new THREE.Vector3(playerPos.x, playerPos.y + 1.5, playerPos.z);
         
-        const offset = new THREE.Vector3(0, 5, 8);
-        
-        // Simple smoothing
-        const idealPos = targetPos.clone().add(offset);
-        this.camera.position.lerp(idealPos, 0.1);
-        this.camera.lookAt(targetPos);
+        this.cameraState.target.lerp(center, 0.1);
+
+        const r = this.cameraState.radius;
+        const theta = this.cameraState.theta;
+        const phi = this.cameraState.phi;
+
+        const x = r * Math.sin(phi) * Math.sin(theta);
+        const y = r * Math.cos(phi);
+        const z = r * Math.sin(phi) * Math.cos(theta);
+
+        this.camera.position.copy(this.cameraState.target).add(new THREE.Vector3(x, y, z));
+        this.camera.lookAt(this.cameraState.target);
 
         // Compass update
         const playerForward = new THREE.Vector3(0,0,-1).applyQuaternion(this.player.mesh.quaternion);
@@ -233,11 +359,62 @@ export class Game {
             dt *= 0.1;
         }
 
+        // Inputs: Transform inputs to be relative to camera for Player
+        const transformedInputs = { x: 0, y: 0 };
+        if (this.inputs.x !== 0 || this.inputs.y !== 0) {
+            // Forward vector on XZ plane
+            const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.quaternion);
+            forward.y = 0; forward.normalize();
+            const right = new THREE.Vector3(1, 0, 0).applyQuaternion(this.camera.quaternion);
+            right.y = 0; right.normalize();
+
+            // input y is forward, x is right
+            const moveDir = forward.multiplyScalar(this.inputs.y).add(right.multiplyScalar(this.inputs.x));
+            
+            // Map back to x/y for player (x=x, y=-z logic in player)
+            // Player expects: x, -y. 
+            // Player code: moveVec = (x, 0, -y).
+            // So we pass x = moveDir.x, y = -moveDir.z
+            transformedInputs.x = moveDir.x;
+            transformedInputs.y = -moveDir.z;
+        }
+
         // Game State Logic
         if (this.gameState === 'ROAMING') {
-            this.player.update(dt, this.inputs, this.world);
+            this.player.update(dt, transformedInputs, this.world);
             this.world.update(dt, this.player.mesh.position);
             
+            // Update Roaming Projectiles
+            for (let i = this.roamingProjectiles.length - 1; i >= 0; i--) {
+                const p = this.roamingProjectiles[i];
+                const result = p.update(dt, this.world.enemies.filter(e => e.hp > 0));
+                
+                if (result.result === 'HIT' || result.result === 'HIT_AOE') {
+                    this.audioManager.playSfx('hit');
+                    
+                    let hitEnemies = [];
+                    if (result.result === 'HIT') {
+                        result.target.takeDamage(result.damage);
+                        hitEnemies.push(result.target);
+                    } else {
+                        result.targets.forEach(t => t.takeDamage(result.damage));
+                        hitEnemies = result.targets;
+                    }
+                    
+                    p.dispose();
+                    this.roamingProjectiles.splice(i, 1);
+
+                    // Trigger Battle with first hit enemy
+                    if (hitEnemies.length > 0 && hitEnemies[0].hp > 0) {
+                        this.startBattle(hitEnemies[0]);
+                    }
+                }
+                else if (result.result === 'TIMEOUT') {
+                    p.dispose();
+                    this.roamingProjectiles.splice(i, 1);
+                }
+            }
+
             // Check for contact encounters
             for (let enemy of this.world.enemies) {
                 if (enemy.hp <= 0) continue;
@@ -248,7 +425,8 @@ export class Game {
             }
 
         } else if (this.gameState === 'BATTLE') {
-            const result = this.combatSystem.update(dt, this.inputs, this.world);
+            // Combat system also needs camera-relative inputs
+            const result = this.combatSystem.update(dt, transformedInputs, this.world);
             if (result.status === 'VICTORY') {
                 this.handleVictory(result.xp);
                 this.endBattle();

@@ -186,6 +186,9 @@ export class SpellProjectile {
              }
         }
 
+        // Store spawn position for range checks
+        this.spawnPos = this.position.clone();
+
         // Ground Target Logic: If it's a pillar spell, we snap to target or ground instantly
         if (config.type === 'ground_target') {
             this.life = 1.0; // Duration of visual
@@ -201,6 +204,7 @@ export class SpellProjectile {
             if (world) {
                 spawnPos.y = world.getHeight(spawnPos.x, spawnPos.z);
             }
+            this.spawnPos = spawnPos;
 
             // Create rising mesh
             const spike = new THREE.Mesh(geo, mat);
@@ -224,7 +228,6 @@ export class SpellProjectile {
             
             // Hit check happens once
             this.hasHit = false;
-            this.spawnPos = spawnPos;
 
         } else {
             // Projectile
@@ -266,6 +269,15 @@ export class SpellProjectile {
         
         this.age += dt;
         this.life -= dt;
+
+        // Max range check (approx battle radius 20)
+        if (this.spawnPos && this.mesh) {
+            const currentPos = (this.config.type === 'ground_target') ? this.spawnPos : this.mesh.position;
+            if (currentPos.distanceTo(this.spawnPos) > 25.0) {
+                this.dispose();
+                return { result: 'TIMEOUT' };
+            }
+        }
 
         if (this.life <= 0) {
             this.dispose();

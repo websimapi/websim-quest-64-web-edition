@@ -34,6 +34,7 @@ export class Player {
         };
         
         this.targetRotation = null;
+        this.navTarget = null;
 
         this.recalcStats();
     }
@@ -258,34 +259,69 @@ export class Player {
         // Override movement if disabled
         if (!canMove) {
             this.isMoving = false;
+            this.navTarget = null;
         } else {
-            this.isMoving = (inputs.x !== 0 || inputs.y !== 0);
+            // Check Input first (Joystick/WASD overrides Click-to-Move)
+            if (inputs.x !== 0 || inputs.y !== 0) {
+                this.isMoving = true;
+                this.navTarget = null; 
+            } else if (this.navTarget) {
+                 this.isMoving = true;
+            } else {
+                this.isMoving = false;
+            }
         }
 
         if (this.isMoving) {
             this.targetRotation = null; // User input overrides auto-turn
 
-            const moveVec = new THREE.Vector3(inputs.x, 0, -inputs.y).normalize();
-            
-            // Rotate player to face movement
-            const angle = Math.atan2(moveVec.x, moveVec.z);
-            const targetQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0), angle);
-            this.mesh.quaternion.slerp(targetQuat, 10 * dt);
+            let moveVec;
 
-            // Move
-            const moveAmount = moveVec.multiplyScalar(this.speed * dt);
-            const nextPos = this.mesh.position.clone().add(moveAmount);
+            if (this.navTarget) {
+                const dist = this.mesh.position.distanceTo(this.navTarget);
+                if (dist < 0.5) {
+                    this.navTarget = null;
+                    this.isMoving = false;
+                    moveVec = new THREE.Vector3(0,0,0);
+                } else {
+                    moveVec = new THREE.Vector3().subVectors(this.navTarget, this.mesh.position).normalize();
+                    moveVec.y = 0;
+                }
+            } else {
+                // Inputs are now expected to be relative to camera (handled in Game.js) or raw
+                // We assume Game.js passes world-relative direction if it's handling camera rotation, 
+                // OR Game.js passes raw inputs and we handle it.
+                // NOTE: Game.js will be updated to pass camera-relative inputs. 
+                // So inputs.x/y is the final direction vector components.
+                // Previously: new THREE.Vector3(inputs.x, 0, -inputs.y)
+                // If Game.js transforms inputs, we can just use x/z directly from inputs if passed as such,
+                // or keep using x/-y mapping if Game.js respects that convention.
+                // Let's assume standard mapping: x is East, y is North (in 2D input space).
+                // 3D world: x is East, -z is North.
+                moveVec = new THREE.Vector3(inputs.x, 0, -inputs.y).normalize();
+            }
 
-            this.mesh.position.copy(nextPos);
+            if (this.isMoving) {
+                // Rotate player to face movement
+                const angle = Math.atan2(moveVec.x, moveVec.z);
+                const targetQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0), angle);
+                this.mesh.quaternion.slerp(targetQuat, 10 * dt);
 
-            // Bobbing animation for model group
-            if(this.model) {
-                const walkCycle = Date.now() * 0.015;
-                this.model.position.y = Math.sin(walkCycle * 2) * 0.05;
-                
-                // Arm swing
-                if (this.leftArm) this.leftArm.rotation.x = Math.sin(walkCycle) * 0.5;
-                if (this.rightArm) this.rightArm.rotation.x = -0.5 + Math.sin(walkCycle + Math.PI) * 0.5;
+                // Move
+                const moveAmount = moveVec.multiplyScalar(this.speed * dt);
+                const nextPos = this.mesh.position.clone().add(moveAmount);
+
+                this.mesh.position.copy(nextPos);
+
+                // Bobbing animation
+                if(this.model) {
+                    const walkCycle = Date.now() * 0.015;
+                    this.model.position.y = Math.sin(walkCycle * 2) * 0.05;
+                    
+                    // Arm swing
+                    if (this.leftArm) this.leftArm.rotation.x = Math.sin(walkCycle) * 0.5;
+                    if (this.rightArm) this.rightArm.rotation.x = -0.5 + Math.sin(walkCycle + Math.PI) * 0.5;
+                }
             }
         } else {
              // Idle
