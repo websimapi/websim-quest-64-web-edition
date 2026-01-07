@@ -1,10 +1,12 @@
 import * as THREE from 'three';
-import nipplejs from 'nipplejs';
 import { World } from './World.js';
 import { Player } from './Player.js';
 import { CombatSystem } from './CombatSystem.js';
 import { AudioManager } from './AudioManager.js';
 import { SpellProjectile, getSpellConfig } from './Spells.js';
+import { UIManager } from './UIManager.js';
+import { InputManager } from './InputManager.js';
+import { CameraController } from './CameraController.js';
 
 export class Game {
     constructor(audioCtx) {
@@ -24,39 +26,31 @@ export class Game {
         this.renderer.shadowMap.enabled = true;
         this.container.appendChild(this.renderer.domElement);
 
-        // Inputs
+        // Inputs (populated by InputManager)
         this.inputs = { x: 0, y: 0, magic: false };
         this.raycaster = new THREE.Raycaster();
-        this.setupInputs();
 
         // Subsystems
         this.audioManager = new AudioManager(audioCtx);
         this.world = new World(this.scene);
         this.player = new Player(this.scene, this.audioManager);
         this.combatSystem = new CombatSystem(this.scene, this.player, this.audioManager);
+        this.uiManager = new UIManager(this.player, this.combatSystem);
+
+        // Camera controller (handles orbit & compass)
+        this.cameraController = new CameraController(this.camera, this.player.mesh);
+
+        // Input manager (joystick, keyboard, pointer)
+        this.inputManager = new InputManager(this, this.renderer, this.cameraController);
 
         this.clock = new THREE.Clock();
         this.gameState = 'ROAMING'; // ROAMING, BATTLE, MENU
         this.messageTimer = null;
         
         this.roamingProjectiles = [];
-        
-        this.cameraState = {
-            radius: 12,
-            theta: Math.PI,
-            phi: Math.PI * 0.35,
-            target: new THREE.Vector3()
-        };
-        
-        this.inputState = {
-            down: false,
-            startX: 0,
-            startY: 0,
-            lastX: 0,
-            lastY: 0,
-            isDragging: false,
-            startTime: 0
-        };
+
+        // removed cameraState (now handled in CameraController)
+        // removed inputState (now handled in InputManager)
     }
 
     async start() {
@@ -75,116 +69,15 @@ export class Game {
         this.world.generate();
         this.player.mesh.position.y = this.world.getHeight(0, 0);
 
+        // Ensure camera follows the loaded player
+        if (this.cameraController) {
+            this.cameraController.setTarget(this.player.mesh);
+        }
+
         this.loop();
     }
 
-    setupInputs() {
-        // Touch Joystick
-        const manager = nipplejs.create({
-            zone: document.getElementById('zone-nipple'),
-            mode: 'static',
-            position: { left: '50%', top: '50%' },
-            color: 'white'
-        });
-
-        manager.on('move', (evt, data) => {
-            const angle = data.angle.radian;
-            const force = Math.min(data.force, 1.0);
-            this.inputs.x = Math.cos(angle) * force;
-            this.inputs.y = Math.sin(angle) * force;
-        });
-
-        manager.on('end', () => {
-            this.inputs.x = 0;
-            this.inputs.y = 0;
-        });
-
-        // Keyboard
-        window.addEventListener('keydown', (e) => {
-            if (e.key === 'w') this.inputs.y = 1;
-            if (e.key === 's') this.inputs.y = -1;
-            if (e.key === 'a') this.inputs.x = -1;
-            if (e.key === 'd') this.inputs.x = 1;
-        });
-
-        window.addEventListener('keyup', (e) => {
-            if (['w','s'].includes(e.key)) this.inputs.y = 0;
-            if (['a','d'].includes(e.key)) this.inputs.x = 0;
-        });
-
-        // UI Buttons
-        const spellMenu = document.getElementById('spell-menu');
-        const actionBtn = document.getElementById('action-btn');
-
-        actionBtn.addEventListener('click', (e) => {
-            e.stopPropagation(); // Prevent affecting other inputs
-            if (this.gameState === 'ROAMING' || this.gameState === 'BATTLE') {
-                spellMenu.classList.toggle('active');
-            }
-        });
-
-        document.querySelectorAll('.element-btn').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                const el = btn.dataset.el;
-                this.handleSpellCast(el);
-                spellMenu.classList.remove('active');
-            });
-        });
-        
-        // Close menu if clicking outside
-        document.addEventListener('click', (e) => {
-           if(!e.target.closest('#spell-menu') && !e.target.closest('#action-btn')) {
-               spellMenu.classList.remove('active');
-           } 
-        });
-
-        // Pointer Events for Camera & Interaction
-        const dom = this.renderer.domElement;
-        
-        dom.addEventListener('pointerdown', (e) => {
-            this.inputState.down = true;
-            this.inputState.startX = e.clientX;
-            this.inputState.startY = e.clientY;
-            this.inputState.lastX = e.clientX;
-            this.inputState.lastY = e.clientY;
-            this.inputState.startTime = Date.now();
-            this.inputState.isDragging = false;
-        });
-
-        dom.addEventListener('pointermove', (e) => {
-            if (!this.inputState.down) return;
-
-            const dx = e.clientX - this.inputState.lastX;
-            const dy = e.clientY - this.inputState.lastY;
-            
-            // Check drag threshold
-            const dist = Math.sqrt((e.clientX - this.inputState.startX)**2 + (e.clientY - this.inputState.startY)**2);
-            if (dist > 5) this.inputState.isDragging = true;
-
-            if (this.inputState.isDragging) {
-                // Rotate Camera
-                const sensitivity = 0.005;
-                this.cameraState.theta -= dx * sensitivity;
-                this.cameraState.phi -= dy * sensitivity;
-                
-                // Clamp elevation
-                this.cameraState.phi = Math.max(0.1, Math.min(Math.PI / 2 - 0.1, this.cameraState.phi));
-            }
-
-            this.inputState.lastX = e.clientX;
-            this.inputState.lastY = e.clientY;
-        });
-
-        dom.addEventListener('pointerup', (e) => {
-            this.inputState.down = false;
-            
-            // Tap Detection
-            if (!this.inputState.isDragging && (Date.now() - this.inputState.startTime) < 300) {
-                this.handleTap(e.clientX, e.clientY);
-            }
-        });
-    }
+    // removed setupInputs() {} – now handled by InputManager
 
     handleTap(x, y) {
         // Prevent click if clicking UI
@@ -217,7 +110,7 @@ export class Game {
                     if (this.gameState === 'BATTLE') {
                         const result = this.combatSystem.tryFaceTarget(target);
                         if (!result.success && result.reason === 'Not enough movement') {
-                            this.showMessage("Not enough movement!", 1000);
+                            this.uiManager.showMessage("Not enough movement!", 1000);
                         }
                     } else {
                         // Roaming: Just face them
@@ -247,7 +140,7 @@ export class Game {
             
             // Check MP
             if (this.player.stats.mp < config.cost) {
-                this.showMessage("Not enough MP!", 1000);
+                this.uiManager.showMessage("Not enough MP!", 1000);
                 return;
             }
 
@@ -297,65 +190,9 @@ export class Game {
         this.roamingProjectiles.push(proj);
     }
 
-    updateCamera() {
-        // Orbit Camera
-        const playerPos = this.player.mesh.position;
-        const center = new THREE.Vector3(playerPos.x, playerPos.y + 1.5, playerPos.z);
-        
-        this.cameraState.target.lerp(center, 0.1);
+    // removed updateCamera() {} – now handled by CameraController
 
-        const r = this.cameraState.radius;
-        const theta = this.cameraState.theta;
-        const phi = this.cameraState.phi;
-
-        const x = r * Math.sin(phi) * Math.sin(theta);
-        const y = r * Math.cos(phi);
-        const z = r * Math.sin(phi) * Math.cos(theta);
-
-        this.camera.position.copy(this.cameraState.target).add(new THREE.Vector3(x, y, z));
-        this.camera.lookAt(this.cameraState.target);
-
-        // Compass update
-        const playerForward = new THREE.Vector3(0,0,-1).applyQuaternion(this.player.mesh.quaternion);
-        // Calculate angle relative to North (Negative Z)
-        const angle = Math.atan2(playerForward.x, playerForward.z);
-        const compassArrow = document.getElementById('compass-arrow');
-        compassArrow.style.transform = `translate(-50%, -100%) rotate(${-angle}rad)`;
-    }
-
-    updateUI() {
-        document.getElementById('hp-bar').innerText = `HP: ${Math.floor(this.player.stats.hp)}/${this.player.stats.maxHp}`;
-        document.getElementById('mp-bar').innerText = `MP: ${Math.floor(this.player.stats.mp)}/${this.player.stats.maxMp}`;
-        
-        const s = this.player.spirits;
-        document.getElementById('spirit-stats').innerHTML = 
-            `<span style="color:#d32f2f">FIRE: ${s.fire}</span><br>` +
-            `<span style="color:#1976d2">WATER: ${s.water}</span><br>` +
-            `<span style="color:#388e3c">EARTH: ${s.earth}</span><br>` +
-            `<span style="color:#fbc02d">WIND: ${s.wind}</span>`;
-        
-        // Battle Specific UI
-        const turnInd = document.getElementById('turn-indicator');
-        const moveBar = document.getElementById('move-bar-container');
-        const moveFill = document.getElementById('move-bar-fill');
-
-        if (this.gameState === 'BATTLE') {
-            turnInd.style.display = 'block';
-            turnInd.innerText = this.combatSystem.turn + " TURN";
-            turnInd.style.color = this.combatSystem.turn === 'PLAYER' ? '#00ff00' : '#ff0000';
-            
-            if (this.combatSystem.turn === 'PLAYER') {
-                moveBar.style.display = 'block';
-                const pct = Math.max(0, (this.combatSystem.currentMove / this.combatSystem.maxMove) * 100);
-                moveFill.style.width = pct + '%';
-            } else {
-                moveBar.style.display = 'none';
-            }
-        } else {
-            turnInd.style.display = 'none';
-            moveBar.style.display = 'none';
-        }
-    }
+    // removed updateUI() {} – HUD updates now handled by UIManager.update()
 
     loop() {
         requestAnimationFrame(() => this.loop());
@@ -440,19 +277,23 @@ export class Game {
                 this.handleVictory(result.xp);
                 this.endBattle();
             } else if (result.status === 'ESCAPE') {
-                this.showMessage("ESCAPED!", 2000);
+                this.uiManager.showMessage("ESCAPED!", 2000);
                 this.endBattle();
             }
         }
 
-        this.updateUI();
-        this.updateCamera();
+        this.uiManager.update(this.gameState, this.combatSystem);
+
+        if (this.cameraController) {
+            this.cameraController.update();
+        }
+
         this.renderer.render(this.scene, this.camera);
     }
 
     startBattle(enemy) {
         this.gameState = 'BATTLE';
-        this.showMessage("BATTLE START!", 2000);
+        this.uiManager.showMessage("BATTLE START!", 2000);
         this.combatSystem.initBattle(this.player.mesh.position, enemy, this.world.enemies, this.world);
     }
 
@@ -463,60 +304,24 @@ export class Game {
     
     handleVictory(xp = 20) {
         const leveledUp = this.player.gainXp(xp);
-        this.showMessage(leveledUp ? "LEVEL UP!" : `VICTORY! +${xp} XP`, 3000);
+        this.uiManager.showMessage(leveledUp ? "LEVEL UP!" : `VICTORY! +${xp} XP`, 3000);
         
         if (leveledUp) {
-            this.showLevelUpMenu();
-        }
-    }
-
-    showLevelUpMenu() {
-        const overlay = document.getElementById('levelup-overlay');
-        overlay.querySelector('p').innerText = "Grant 1 Spirit Point to an element:";
-        overlay.style.display = 'flex';
-        
-        const close = () => {
-            overlay.style.display = 'none';
-            this.player.recalcStats();
-            // Restore HP/MP on level up? Sure
-            this.player.stats.hp = this.player.stats.maxHp;
-            this.player.stats.mp = this.player.stats.maxMp;
-        };
-
-        const handler = (e) => {
-            const id = e.target.id;
-            if (id.includes('fire')) this.player.spirits.fire++;
-            if (id.includes('water')) this.player.spirits.water++;
-            if (id.includes('earth')) this.player.spirits.earth++;
-            if (id.includes('wind')) this.player.spirits.wind++;
-            
-            // Remove listeners
-            document.querySelectorAll('.element-btn').forEach(b => {
-               // This is a bit messy because the main UI also has these classes
-               // But the IDs are specific for the modal
+            // Delegate level up UI and stat application to UIManager callback
+            this.uiManager.showLevelUpMenu((elementKey) => {
+                if (!elementKey) return;
+                if (this.player.spirits[elementKey] !== undefined) {
+                    this.player.spirits[elementKey]++;
+                }
+                this.player.recalcStats();
+                this.player.stats.hp = this.player.stats.maxHp;
+                this.player.stats.mp = this.player.stats.maxMp;
             });
-            close();
-        };
-
-        document.getElementById('lvl-fire').onclick = handler;
-        document.getElementById('lvl-water').onclick = handler;
-        document.getElementById('lvl-earth').onclick = handler;
-        document.getElementById('lvl-wind').onclick = handler;
-    }
-
-    showMessage(msg, duration = 0) {
-        const box = document.getElementById('message-box');
-        box.style.display = msg ? 'block' : 'none';
-        box.textContent = msg;
-        
-        if (this.messageTimer) clearTimeout(this.messageTimer);
-        if (duration > 0) {
-            this.messageTimer = setTimeout(() => {
-                box.style.display = 'none';
-                box.textContent = "";
-            }, duration);
         }
     }
+
+    // removed showLevelUpMenu() {} – moved to UIManager
+    // removed showMessage() {} – moved to UIManager
 
     onResize() {
         this.camera.aspect = window.innerWidth / window.innerHeight;
