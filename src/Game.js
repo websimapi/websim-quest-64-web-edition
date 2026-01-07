@@ -213,6 +213,7 @@ export class Game {
                 });
                 
                 if (target) {
+                    target.highlight();
                     if (this.gameState === 'BATTLE') {
                         const result = this.combatSystem.tryFaceTarget(target);
                         if (!result.success && result.reason === 'Not enough movement') {

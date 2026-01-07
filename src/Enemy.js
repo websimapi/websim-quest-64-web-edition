@@ -65,6 +65,7 @@ export class Enemy {
         this.roamRadius = 20;
         this.roamTarget = this.roamOrigin.clone();
         this.waitTime = 0;
+        this.baseColor = color;
 
         const mat = new THREE.MeshStandardMaterial({ 
             map: null,
@@ -81,7 +82,7 @@ export class Enemy {
 
         // Hitbox for easier selection
         const hitGeo = new THREE.CylinderGeometry(1.5, 1.5, 3, 8);
-        const hitMat = new THREE.MeshBasicMaterial({ visible: false, side: THREE.DoubleSide });
+        const hitMat = new THREE.MeshBasicMaterial({ visible: true, transparent: true, opacity: 0, side: THREE.DoubleSide });
         const hitbox = new THREE.Mesh(hitGeo, hitMat);
         hitbox.userData = { isHitbox: true };
         this.mesh.add(hitbox);
@@ -162,10 +163,9 @@ export class Enemy {
         this.hp -= amount;
         
         // Flash white
-        const oldColor = this.mesh.material.color.getHex();
         this.mesh.material.color.setHex(0xffffff);
         setTimeout(() => {
-            if(this.mesh) this.mesh.material.color.setHex(oldColor);
+            if(this.mesh) this.mesh.material.color.setHex(this.baseColor);
         }, 100);
 
         if (this.hp <= 0) {
@@ -173,6 +173,14 @@ export class Enemy {
             return true;
         }
         return false;
+    }
+
+    highlight() {
+        if (!this.mesh) return;
+        this.mesh.material.color.setHex(0xffff00);
+        setTimeout(() => {
+            if(this.mesh) this.mesh.material.color.setHex(this.baseColor);
+        }, 200);
     }
 
     resetBattleState() {
@@ -196,11 +204,7 @@ export class Enemy {
 
         // Base color restoration helper
         const resetColor = () => {
-            if (this.type === 'GOBLIN') this.mesh.material.color.setHex(0x882222);
-            if (this.type === 'SLIME') this.mesh.material.color.setHex(0x44ff44);
-            if (this.type === 'WOLF') this.mesh.material.color.setHex(0x555555);
-            if (this.type === 'GOLEM') this.mesh.material.color.setHex(0x6d4c41);
-            if (this.type === 'SPIRIT') this.mesh.material.color.setHex(0x00ffff);
+            if (this.mesh) this.mesh.material.color.setHex(this.baseColor);
         };
 
         switch (this.turnPhase) {
