@@ -171,14 +171,16 @@ export class Game {
             }
         }
 
+        // Always update world (Water, Grass, Enemies)
+        this.world.update(dt, this.player.mesh.position, this.camera);
+
         if (this.gameState === 'ROAMING') {
             this.player.update(dt, transformedInputs, this.world);
-            this.world.update(dt, this.player.mesh.position, this.camera);
             
             // Check for contact encounters
             for (let enemy of this.world.enemies) {
                 if (enemy.hp <= 0) continue;
-                if (enemy.mesh.position.distanceTo(this.player.mesh.position) < 2.0) {
+                if (enemy.state !== 'BATTLE' && enemy.mesh.position.distanceTo(this.player.mesh.position) < 2.0) {
                     this.startBattle(enemy);
                     break;
                 }

@@ -81,7 +81,8 @@ export class Enemy {
         }
 
         // Animate visuals
-        this.animate(dt, this.state === 'CHASE' || (this.waitTime <= 0 && this.state === 'ROAM'));
+        const isMovingBattle = this.state === 'BATTLE' && (this.turnPhase === 'MOVE' || this.turnPhase === 'RETURN' || (this.turnPhase === 'ATTACK_EXEC' && this.selectedMove && ['MELEE', 'DASH'].includes(this.selectedMove.type)));
+        this.animate(dt, isMovingBattle || this.state === 'CHASE' || (this.waitTime <= 0 && this.state === 'ROAM'));
 
         if (this.state === 'BATTLE') {
             return;
