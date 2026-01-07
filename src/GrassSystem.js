@@ -4,267 +4,289 @@ export class GrassSystem {
     constructor(scene, world) {
         this.scene = scene;
         this.world = world;
-        this.chunkSize = 250; 
-        this.grassMeshes = [];
+        
+        // LOD Configuration
+        this.chunkSize = 25; // Small chunks for fine-grained culling/loading
+        this.renderRadius = 3; // Radius in chunks to render around player
+        
+        this.activeChunks = new Map(); // Key: "x,z", Value: Mesh
+        this.player = null;
+        
         this.uniforms = {
             time: { value: 0 },
             playerPos: { value: new THREE.Vector3() }
         };
+        
+        this.bladeGeometry = null;
+        this.material = null;
+        this.depthMaterial = null;
+        this.grassTexture = null;
     }
 
     generate(grassTexture, player) {
-        this.player = player; // Store reference
-        
-        // Geometry: Crossed Planes for volume
-        // Manually build geometry to control UVs and structure
-        const geometry = new THREE.BufferGeometry();
-        const vertices = [];
-        const uvs = [];
-        const indices = [];
-        
-        // 2 planes, 90 deg offset
-        const planes = 2;
-        const width = 1.5;
-        const height = 1.3;
-        
-        for(let i=0; i<planes; i++) {
-            const angle = (Math.PI / 2) * i;
-            // Define 4 corners relative to center bottom
-            // We want pivot at Y=0
-            const dx = (width/2) * Math.cos(angle);
-            const dz = (width/2) * Math.sin(angle);
-            
-            // Quad vertices
-            // 0: Bottom Left
-            // 1: Bottom Right
-            // 2: Top Left
-            // 3: Top Right
-            const baseIndex = vertices.length / 3;
-            
-            vertices.push(
-                -dx, 0, -dz,  // BL
-                 dx, 0,  dz,  // BR
-                -dx, height, -dz, // TL
-                 dx, height,  dz  // TR
-            );
-            
-            uvs.push(
-                0, 0,
-                1, 0,
-                0, 1,
-                1, 1
-            );
-            
-            indices.push(
-                baseIndex, baseIndex+1, baseIndex+2,
-                baseIndex+2, baseIndex+1, baseIndex+3
-            );
-        }
+        this.player = player;
+        this.grassTexture = grassTexture;
 
-        geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
-        geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
-        geometry.setIndex(indices);
-        geometry.computeVertexNormals();
+        // --- 1. Construct Tapered Blade Geometry ---
+        // A simple curved blade shape (Triangle-ish)
+        // 5 vertices: 
+        // 0: Bottom Left
+        // 1: Bottom Right
+        // 2: Mid Left
+        // 3: Mid Right
+        // 4: Top
+        
+        const bladeWidth = 0.12;
+        const bladeHeight = 1.0;
+        const midHeight = 0.4;
+        
+        const positions = [
+            -bladeWidth/2, 0, 0,      // 0
+             bladeWidth/2, 0, 0,      // 1
+            -bladeWidth/3, midHeight, 0.1, // 2 (slight curve Z)
+             bladeWidth/3, midHeight, 0.1, // 3
+             0, bladeHeight, 0.3      // 4 (Top, curve Z)
+        ];
+        
+        const indices = [
+            0, 1, 2,
+            2, 1, 3,
+            2, 3, 4
+        ];
+        
+        // UVs for gradient
+        const uvs = [
+            0, 0,
+            1, 0,
+            0, 0.4,
+            1, 0.4,
+            0.5, 1.0
+        ];
 
-        // Shared Geometry Bounding Sphere for Culling
-        // Ensure it covers a chunk: Radius ~200 covers a 250x250 square diagonal from center
-        geometry.boundingSphere = new THREE.Sphere(new THREE.Vector3(0,0,0), 250);
+        this.bladeGeometry = new THREE.BufferGeometry();
+        this.bladeGeometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+        this.bladeGeometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+        this.bladeGeometry.setIndex(indices);
+        this.bladeGeometry.computeVertexNormals();
+        
+        // Bounding sphere for culling must allow for chunk size
+        this.bladeGeometry.boundingSphere = new THREE.Sphere(new THREE.Vector3(0,0,0), this.chunkSize * 1.5);
 
-        // Material setup
-        const material = new THREE.MeshStandardMaterial({
-            map: grassTexture,
-            color: 0x99cc99, // Slightly lighter green
-            alphaTest: 0.4,
-            side: THREE.DoubleSide,
-            roughness: 1.0,
-            metalness: 0.0
+        // --- 2. Material with Custom Shader ---
+        this.material = new THREE.MeshStandardMaterial({
+            color: 0xffffff, // Driven by shader
+            roughness: 0.4,
+            metalness: 0.0,
+            side: THREE.DoubleSide
         });
 
-        // SHADER INJECTION
         const onBeforeCompile = (shader) => {
             shader.uniforms.time = this.uniforms.time;
             shader.uniforms.playerPos = this.uniforms.playerPos;
             
-            // Add noise function and varyings
             shader.vertexShader = `
                 uniform float time;
                 uniform vec3 playerPos;
-                
-                // Simplex Noise (Lightweight)
-                vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
-                vec2 mod289(vec2 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
-                vec3 permute(vec3 x) { return mod289(((x*34.0)+1.0)*x); }
-                float snoise(vec2 v) {
-                    const vec4 C = vec4(0.211324865405187, 0.366025403784439, -0.577350269189626, 0.024390243902439);
-                    vec2 i  = floor(v + dot(v, C.yy) );
-                    vec2 x0 = v - i + dot(i, C.xx);
-                    vec2 i1;
-                    i1 = (x0.x > x0.y) ? vec2(1.0, 0.0) : vec2(0.0, 1.0);
-                    vec4 x12 = x0.xyxy + C.xxzz;
-                    x12.xy -= i1;
-                    i = mod289(i);
-                    vec3 p = permute( permute( i.y + vec3(0.0, i1.y, 1.0 )) + i.x + vec3(0.0, i1.x, 1.0 ));
-                    vec3 m = max(0.5 - vec3(dot(x0,x0), dot(x12.xy,x12.xy), dot(x12.zw,x12.zw)), 0.0);
-                    m = m*m ;
-                    m = m*m ;
-                    vec3 x = 2.0 * fract(p * C.www) - 1.0;
-                    vec3 h = abs(x) - 0.5;
-                    vec3 ox = floor(x + 0.5);
-                    vec3 a0 = x - ox;
-                    m *= 1.79284291400159 - 0.85373472095314 * ( a0*a0 + h*h );
-                    vec3 g;
-                    g.x  = a0.x  * x0.x  + h.x  * x0.y;
-                    g.yz = a0.yz * x12.xz + h.yz * x12.yw;
-                    return 130.0 * dot(m, g);
-                }
+                varying float vHeight;
+                varying vec3 vWorldPos;
                 
                 ${shader.vertexShader}
             `;
-
-            // Inject logic into begin_vertex
+            
             shader.vertexShader = shader.vertexShader.replace(
                 '#include <begin_vertex>',
                 `
                 #include <begin_vertex>
                 
-                // --- CUSTOM GRASS LOGIC ---
+                vHeight = uv.y;
                 
-                // 1. Get World Position of Instance Pivot
-                // instanceMatrix attribute is available here
-                vec4 instanceWorldPos = instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
+                // Instance World Position (using instanceMatrix)
+                vec4 instPos = instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
+                vWorldPos = instPos.xyz;
                 
-                // 2. Wind Animation
-                // Coherent noise based on world position
-                float noiseVal = snoise(instanceWorldPos.xz * 0.02 + time * 0.5);
+                // --- WIND ANIMATION ---
+                // Simple Perlin-ish Approximation
+                float freq = 0.4;
+                float speed = 1.5;
+                float windX = sin(time * speed + instPos.x * freq + instPos.z * freq * 0.5);
+                float windZ = cos(time * speed * 0.8 + instPos.x * freq * 0.5 + instPos.z * freq);
                 
-                // Simple sine wave wind
-                float sway = sin(time * 1.5 + instanceWorldPos.x * 0.1 + instanceWorldPos.z * 0.1) * 0.3;
-                sway += noiseVal * 0.2;
+                // Detail turbulence
+                float turb = sin(time * 3.0 + instPos.x + instPos.z);
                 
-                // Apply based on height (stiffness)
-                // transformed.y is local height (0 to 1.3)
-                float stiff = smoothstep(0.0, 1.3, transformed.y);
-                stiff = pow(stiff, 2.0); // Curve
+                float strength = 0.2 + 0.1 * turb;
+                float bend = pow(vHeight, 2.0); // Stiff bottom, bendy top
                 
-                // Apply local wind (approximate)
-                transformed.x += sway * stiff;
+                transformed.x += windX * strength * bend;
+                transformed.z += windZ * strength * bend;
+                transformed.y -= abs(windX) * strength * 0.2 * bend; // Minor dip when bending
                 
-                // 3. Player Interaction (Bending)
-                float dist = distance(instanceWorldPos.xyz, playerPos);
-                float radius = 2.0;
+                // --- INTERACTION ---
+                float dist = distance(instPos.xyz, playerPos);
+                float radius = 2.5;
                 
                 if (dist < radius) {
-                    // Calculate push direction in World Space
-                    vec3 pushDir = normalize(instanceWorldPos.xyz - playerPos);
-                    pushDir.y = 0.0;
+                    float push = (1.0 - dist/radius);
+                    push = push * push; // Smooth ease
                     
-                    // Transform push direction to Local Space (inverse rotation)
-                    // Transpose of rotation matrix = inverse
-                    vec3 localPush;
-                    localPush.x = dot(pushDir, instanceMatrix[0].xyz);
-                    localPush.y = dot(pushDir, instanceMatrix[1].xyz);
-                    localPush.z = dot(pushDir, instanceMatrix[2].xyz);
+                    // Flatten grass near player
+                    transformed.y *= (1.0 - push * 0.8);
                     
-                    float strength = (1.0 - dist / radius);
-                    transformed += localPush * strength * 1.5 * stiff;
-                    
-                    // Squish down slightly
-                    transformed.y *= (0.3 + 0.7 * (dist/radius));
+                    // Spread out fake
+                    transformed.x += push * 0.5;
+                    transformed.z += push * 0.5;
                 }
                 `
             );
+
+            shader.fragmentShader = `
+                varying float vHeight;
+                varying vec3 vWorldPos;
+                ${shader.fragmentShader}
+            `;
+            
+            shader.fragmentShader = shader.fragmentShader.replace(
+                '#include <color_fragment>',
+                `
+                #include <color_fragment>
+                
+                // Gradient Colors
+                vec3 colBottom = vec3(0.05, 0.2, 0.02); // Dark rich green
+                vec3 colTop = vec3(0.4, 0.75, 0.2); // Vibrant lime
+                
+                // Add some world-based noise variation
+                float noise = sin(vWorldPos.x * 0.1) * cos(vWorldPos.z * 0.1);
+                colTop += noise * 0.05;
+
+                vec3 finalCol = mix(colBottom, colTop, vHeight);
+                
+                // Specular Shine
+                float shine = smoothstep(0.8, 1.0, vHeight);
+                finalCol += vec3(0.1, 0.2, 0.1) * shine;
+                
+                diffuseColor.rgb *= finalCol;
+                `
+            );
         };
-
-        material.onBeforeCompile = onBeforeCompile;
         
-        // Depth material for shadow casting (if we want shadows to match sway)
-        const depthMaterial = new THREE.MeshDepthMaterial({
+        this.material.onBeforeCompile = onBeforeCompile;
+        
+        // Depth material for shadow casting
+        this.depthMaterial = new THREE.MeshDepthMaterial({
             depthPacking: THREE.RGBADepthPacking,
-            map: grassTexture,
-            alphaTest: 0.4
         });
-        depthMaterial.onBeforeCompile = onBeforeCompile;
-
-        // Generate Chunks
-        const worldHalf = 1000;
-        const step = this.chunkSize;
-        
-        for (let x = -worldHalf; x < worldHalf; x += step) {
-            for (let z = -worldHalf; z < worldHalf; z += step) {
-                this.createChunk(x, z, step, geometry, material, depthMaterial);
-            }
-        }
-    }
-
-    createChunk(startX, startZ, size, geometry, material, depthMaterial) {
-        const positions = [];
-        const dummy = new THREE.Object3D();
-        
-        // Center of chunk
-        const cx = startX + size/2;
-        const cz = startZ + size/2;
-        
-        // Density: Grass per chunk
-        const count = 300; 
-        
-        for(let i=0; i<count; i++) {
-            // Random pos relative to center
-            const ox = (Math.random() - 0.5) * size;
-            const oz = (Math.random() - 0.5) * size;
-            
-            const wx = cx + ox;
-            const wz = cz + oz;
-            
-            // Biome check
-            const biome = this.world.getBiome(wx, wz);
-            if (biome !== 'GRASSLAND' && biome !== 'FOREST') continue;
-            
-            const h = this.world.getHeight(wx, wz);
-            if (h < 2.5) continue; // Avoid water edge
-            
-            // Slope check
-            const slope = this.world.getSlopeFactor(wx, wz);
-            if (slope > 0.8) continue;
-            
-            // Create Instance
-            // Position relative to Chunk Center for InstancedMesh!
-            // Mesh will be at (cx, 0, cz)
-            // Instance pos should be (ox, h, oz)
-            // Wait, chunk center Y is 0. So Y is just world H.
-            
-            dummy.position.set(ox, h, oz);
-            dummy.rotation.set(0, Math.random() * Math.PI, 0);
-            
-            // Scale variation
-            const s = 0.8 + Math.random() * 0.6;
-            dummy.scale.set(s, s, s);
-            
-            dummy.updateMatrix();
-            positions.push(dummy.matrix.clone());
-        }
-        
-        if (positions.length === 0) return;
-        
-        const mesh = new THREE.InstancedMesh(geometry, material, positions.length);
-        mesh.customDepthMaterial = depthMaterial;
-        mesh.castShadow = false; // Disable self-shadows for performance/looks
-        mesh.receiveShadow = true;
-        
-        for(let i=0; i<positions.length; i++) {
-            mesh.setMatrixAt(i, positions[i]);
-        }
-        
-        mesh.position.set(cx, 0, cz);
-        mesh.updateMatrixWorld();
-        
-        this.scene.add(mesh);
-        this.grassMeshes.push(mesh);
+        this.depthMaterial.onBeforeCompile = onBeforeCompile;
     }
 
     update(dt) {
         this.uniforms.time.value += dt;
-        if (this.player && this.player.mesh) {
-            this.uniforms.playerPos.value.copy(this.player.mesh.position);
+        
+        if (!this.player || !this.player.mesh) return;
+        
+        this.uniforms.playerPos.value.copy(this.player.mesh.position);
+        
+        // --- DYNAMIC CHUNK LOADING ---
+        // Get player chunk coord
+        const px = this.player.mesh.position.x;
+        const pz = this.player.mesh.position.z;
+        
+        const chunkX = Math.floor(px / this.chunkSize);
+        const chunkZ = Math.floor(pz / this.chunkSize);
+        
+        const neededChunks = new Set();
+        
+        // Determine chunks in radius
+        for (let x = -this.renderRadius; x <= this.renderRadius; x++) {
+            for (let z = -this.renderRadius; z <= this.renderRadius; z++) {
+                const cx = chunkX + x;
+                const cz = chunkZ + z;
+                // Circular check
+                if (x*x + z*z > this.renderRadius * this.renderRadius) continue;
+                
+                const key = `${cx},${cz}`;
+                neededChunks.add(key);
+                
+                if (!this.activeChunks.has(key)) {
+                    this.createChunk(cx, cz);
+                }
+            }
         }
+        
+        // Unload old chunks
+        for (const [key, mesh] of this.activeChunks) {
+            if (!neededChunks.has(key)) {
+                this.disposeChunk(key);
+            }
+        }
+    }
+
+    createChunk(cx, cz) {
+        // High density count
+        const density = 600; // Blades per chunk
+        const dummy = new THREE.Object3D();
+        const matrices = [];
+        
+        // Base chunk position
+        const baseX = cx * this.chunkSize;
+        const baseZ = cz * this.chunkSize;
+        
+        for (let i = 0; i < density; i++) {
+            const lx = Math.random() * this.chunkSize;
+            const lz = Math.random() * this.chunkSize;
+            const wx = baseX + lx;
+            const wz = baseZ + lz;
+            
+            // Validate Position
+            const biome = this.world.getBiome(wx, wz);
+            if (biome !== 'GRASSLAND' && biome !== 'FOREST') continue;
+            
+            const h = this.world.getHeight(wx, wz);
+            if (h < 2.5) continue; // Water
+            
+            const slope = this.world.getSlopeFactor(wx, wz);
+            if (slope > 0.8) continue;
+            
+            // Randomize transforms
+            dummy.position.set(wx, h, wz);
+            dummy.rotation.set(
+                (Math.random() - 0.5) * 0.2, // Slight random tilt X
+                Math.random() * Math.PI * 2, // Random Yaw
+                (Math.random() - 0.5) * 0.2  // Slight random tilt Z
+            );
+            
+            // Random Scale
+            const s = 0.8 + Math.random() * 0.6;
+            dummy.scale.set(s, s * (0.8 + Math.random() * 0.4), s);
+            
+            dummy.updateMatrix();
+            matrices.push(dummy.matrix.clone());
+        }
+        
+        if (matrices.length === 0) {
+            this.activeChunks.set(`${cx},${cz}`, null); // Mark visited empty
+            return;
+        }
+        
+        const mesh = new THREE.InstancedMesh(this.bladeGeometry, this.material, matrices.length);
+        mesh.castShadow = false; // Shadows on grass are expensive, rely on self-shade
+        mesh.receiveShadow = true;
+        mesh.customDepthMaterial = this.depthMaterial;
+        
+        for (let i = 0; i < matrices.length; i++) {
+            mesh.setMatrixAt(i, matrices[i]);
+        }
+        
+        mesh.instanceMatrix.needsUpdate = true;
+        this.scene.add(mesh);
+        this.activeChunks.set(`${cx},${cz}`, mesh);
+    }
+
+    disposeChunk(key) {
+        const mesh = this.activeChunks.get(key);
+        if (mesh) {
+            this.scene.remove(mesh);
+            mesh.dispose(); // Custom dispose if extended
+        }
+        this.activeChunks.delete(key);
     }
 }
