@@ -223,6 +223,15 @@ export class Player {
     update(dt, inputs, world, boundaryCenter = null, boundaryRadius = 0, canMove = true) {
         this.regenMp(dt);
 
+        // Handle Rotation (Allowed during cast for aiming adjustments)
+        if (this.targetRotation && !this.isMoving) {
+            this.mesh.quaternion.slerp(this.targetRotation, 10 * dt);
+            if (this.mesh.quaternion.angleTo(this.targetRotation) < 0.01) {
+                this.mesh.quaternion.copy(this.targetRotation);
+                this.targetRotation = null;
+            }
+        }
+
         // Casting State logic
         if (this.castState.active) {
             this.castState.timer -= dt;
@@ -237,11 +246,9 @@ export class Player {
             if(this.rightArm) {
                 const progress = 1 - (this.castState.timer / this.castState.maxTime);
                 // Rotate arm forward (+1.5 is forward, -0.5 is default)
-                // Previous -1.5 pointed backwards, +1.5 points forward
                 this.rightArm.rotation.x = -0.5 + (2.0) * progress;
                 
                 // Rotate staff to align with arm (point forward)
-                // Start PI/2 (Perpendicular). End PI (Aligned with Arm Forward).
                 if(this.staffMesh) {
                     this.staffMesh.rotation.x = (Math.PI / 2) + (Math.PI / 2) * progress;
                 }
@@ -326,14 +333,8 @@ export class Player {
             }
         } else {
              // Idle
-             if (this.targetRotation) {
-                this.mesh.quaternion.slerp(this.targetRotation, 5 * dt); // Slower, smoother turn
-                if (this.mesh.quaternion.angleTo(this.targetRotation) < 0.01) {
-                    this.mesh.quaternion.copy(this.targetRotation);
-                    this.targetRotation = null;
-                }
-             }
-
+             // Rotation handled at top of update
+             
              if(this.model) {
                  this.model.position.y = 0;
                  if (this.leftArm) this.leftArm.rotation.x = THREE.MathUtils.lerp(this.leftArm.rotation.x, 0, 0.1);

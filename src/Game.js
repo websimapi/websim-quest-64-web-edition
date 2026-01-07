@@ -163,15 +163,20 @@ export class Game {
 
     updateAI(dt, inputs) {
         if (this.gameState === 'ROAMING') {
-            // Find target
-            if (!this.aiTarget || this.aiTarget.hp <= 0) {
+            // Cooldown for AI actions
+            if (this.aiActionTimer > 0) {
+                this.aiActionTimer -= dt;
+            }
+
+            // Find target if none or dead or too far
+            if (!this.aiTarget || this.aiTarget.hp <= 0 || this.aiTarget.mesh.position.distanceTo(this.player.mesh.position) > 40) {
                 // Get closest living enemy
                 let minDist = 999;
                 let closest = null;
                 for (let e of this.world.enemies) {
                     if (e.hp > 0) {
                         const d = e.mesh.position.distanceTo(this.player.mesh.position);
-                        if (d < minDist) { minDist = d; closest = e; }
+                        if (d < minDist && d < 40) { minDist = d; closest = e; }
                     }
                 }
                 this.aiTarget = closest;
@@ -182,16 +187,44 @@ export class Game {
                 const tPos = this.aiTarget.mesh.position;
                 const dist = pPos.distanceTo(tPos);
 
-                // Move towards
-                const dir = new THREE.Vector3().subVectors(tPos, pPos).normalize();
-                
-                // Set inputs directly (since these bypass camera transform in loop logic)
-                inputs.x = dir.x;
-                inputs.y = -dir.z; 
+                // Intelligent Approach:
+                // If out of range (> 20), move closer.
+                // If in range (10-20), stop and cast.
+                // If too close (< 8), back off.
+
+                if (dist > 18) {
+                    // Move towards
+                    const dir = new THREE.Vector3().subVectors(tPos, pPos).normalize();
+                    inputs.x = dir.x;
+                    inputs.y = -dir.z; 
+                } else if (dist < 8) {
+                    // Back off slightly to optimal range
+                    const dir = new THREE.Vector3().subVectors(pPos, tPos).normalize();
+                    inputs.x = dir.x;
+                    inputs.y = -dir.z;
+                } else {
+                    // Good range, stop and shoot
+                    inputs.x = 0;
+                    inputs.y = 0;
+                    
+                    if (this.aiActionTimer <= 0 && !this.player.castState.active) {
+                        this.player.faceTarget(tPos);
+                        
+                        this.aiActionTimer = 4.0; // Wait before next shot/move
+                        
+                        // Delay cast to allow rotation to align
+                        setTimeout(() => {
+                            if (this.gameState !== 'ROAMING') return;
+                            const elements = ['fire', 'water', 'earth', 'wind'];
+                            const el = elements[Math.floor(Math.random() * elements.length)];
+                            this.handleSpellCast(el);
+                        }, 400);
+                    }
+                }
             } else {
                  // Idle roam if no enemies
-                 inputs.x = Math.sin(Date.now() * 0.001);
-                 inputs.y = Math.cos(Date.now() * 0.001);
+                 inputs.x = Math.sin(Date.now() * 0.0005);
+                 inputs.y = Math.cos(Date.now() * 0.0005);
             }
         }
     }

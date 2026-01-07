@@ -27,32 +27,63 @@ export class CombatSystem {
 
     getBattleAI(dt) {
         const inputs = { x: 0, y: 0 };
-        if (this.player.castState.active) return inputs;
+        // If casting or waiting for action delay, do nothing
+        if (this.player.castState.active || this.aiCastPending) return inputs;
         
         this.turnTimer += dt;
-        if (this.turnTimer < 0.5) return inputs;
+        if (this.turnTimer < 0.5) return inputs; // Reaction delay
 
-        // Target logic
-        let target = this.activeEnemies.find(e => e.hp > 0);
+        // Pick Target (closest)
+        let target = null;
+        let minDist = 999;
+        this.activeEnemies.forEach(e => {
+            if (e.hp > 0) {
+                const d = this.player.mesh.position.distanceTo(e.mesh.position);
+                if (d < minDist) { minDist = d; target = e; }
+            }
+        });
+        
         if (!target) return inputs;
 
-        const dist = this.player.mesh.position.distanceTo(target.mesh.position);
+        const dist = minDist;
         
-        // Move if far
-        if (dist > 15 && this.currentMove > 1) {
-            const dir = new THREE.Vector3().subVectors(target.mesh.position, this.player.mesh.position).normalize();
+        // AI Strategy: Kiting Mage
+        // 1. If too close (< 8) and have movement: Move AWAY.
+        // 2. If too far (> 18) and have movement: Move CLOSER.
+        // 3. If in optimal range (8-18): Stop and Cast.
+        
+        const optimalMin = 8;
+        const optimalMax = 18;
+
+        if (dist < optimalMin && this.currentMove > 1) {
+            // Move Away
+            const dir = new THREE.Vector3().subVectors(this.player.mesh.position, target.mesh.position).normalize();
             inputs.x = dir.x;
             inputs.y = -dir.z;
         } 
+        else if (dist > optimalMax && this.currentMove > 1) {
+            // Move Closer
+            const dir = new THREE.Vector3().subVectors(target.mesh.position, this.player.mesh.position).normalize();
+            inputs.x = dir.x;
+            inputs.y = -dir.z;
+        }
         else {
-             // Cast
+            // In Position - Attack Sequence
              if (!this.aiCastPending) {
                  this.aiCastPending = true;
+                 
+                 // 1. Orient to target (consumes movement if needed, but important for aim)
+                 this.tryFaceTarget(target);
+                 
+                 // 2. Choose Element
                  const elements = ['fire', 'water', 'earth', 'wind'];
                  const el = elements[Math.floor(Math.random() * elements.length)];
-                 this.player.faceTarget(target.mesh.position);
+                 
+                 // 3. Cast
                  this.playerCast(el);
-                 this.turnTimer = -2.0; // Pause before next action
+                 
+                 // 4. Reset timer
+                 this.turnTimer = -2.0; // Pause before next action logic
                  setTimeout(()=> { this.aiCastPending = false; }, 2000);
              }
         }
