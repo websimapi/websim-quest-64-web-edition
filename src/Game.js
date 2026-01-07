@@ -304,41 +304,42 @@ export class Game {
         }
 
         // Game State Logic
-        if (this.gameState === 'ROAMING') {
-            this.player.update(dt, transformedInputs, this.world);
-            this.world.update(dt, this.player.mesh.position);
-            
-            // Update Roaming Projectiles
-            for (let i = this.roamingProjectiles.length - 1; i >= 0; i--) {
-                const p = this.roamingProjectiles[i];
-                const result = p.update(dt, this.world.enemies.filter(e => e.hp > 0));
-                
-                if (result.result === 'HIT' || result.result === 'HIT_AOE') {
-                    this.audioManager.playSfx('hit');
-                    
-                    let hitEnemies = [];
-                    if (result.result === 'HIT') {
-                        result.target.takeDamage(result.damage);
-                        hitEnemies.push(result.target);
-                    } else {
-                        result.targets.forEach(t => t.takeDamage(result.damage));
-                        hitEnemies = result.targets;
-                    }
-                    
-                    p.dispose();
-                    this.roamingProjectiles.splice(i, 1);
+        this.world.update(dt, this.player.mesh.position);
 
-                    // Trigger Battle with first hit enemy
-                    if (hitEnemies.length > 0 && hitEnemies[0].hp > 0) {
-                        this.startBattle(hitEnemies[0]);
-                    }
+        // Update Roaming Projectiles (Moved out so they don't freeze during battle transition)
+        for (let i = this.roamingProjectiles.length - 1; i >= 0; i--) {
+            const p = this.roamingProjectiles[i];
+            const result = p.update(dt, this.world.enemies.filter(e => e.hp > 0));
+            
+            if (result.result === 'HIT' || result.result === 'HIT_AOE') {
+                this.audioManager.playSfx('hit');
+                
+                let hitEnemies = [];
+                if (result.result === 'HIT') {
+                    result.target.takeDamage(result.damage);
+                    hitEnemies.push(result.target);
+                } else {
+                    result.targets.forEach(t => t.takeDamage(result.damage));
+                    hitEnemies = result.targets;
                 }
-                else if (result.result === 'TIMEOUT') {
-                    p.dispose();
-                    this.roamingProjectiles.splice(i, 1);
+                
+                p.dispose();
+                this.roamingProjectiles.splice(i, 1);
+
+                // Trigger Battle with first hit enemy (only if not already in battle)
+                if (this.gameState === 'ROAMING' && hitEnemies.length > 0 && hitEnemies[0].hp > 0) {
+                    this.startBattle(hitEnemies[0]);
                 }
             }
+            else if (result.result === 'TIMEOUT') {
+                p.dispose();
+                this.roamingProjectiles.splice(i, 1);
+            }
+        }
 
+        if (this.gameState === 'ROAMING') {
+            this.player.update(dt, transformedInputs, this.world);
+            
             // Check for contact encounters
             for (let enemy of this.world.enemies) {
                 if (enemy.hp <= 0) continue;
